@@ -1,0 +1,192 @@
+<UserControl x:Class="SubtitleStudio.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="32">
+        <StackPanel>
+            <!-- Header -->
+            <TextBlock Text="Settings &amp; Model Management"
+                       FontSize="28"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource AccentBrush}"
+                       Margin="0,0,0,8" />
+            <TextBlock Text="Manage AI models and application tools"
+                       FontSize="16"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,0,0,24" />
+
+            <!-- Whisper Models -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Whisper Models"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TextBlock Text="Speech-to-text models for transcription. Larger = more accurate but slower."
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,12" />
+
+                    <DataGrid ItemsSource="{Binding WhisperModels}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="Column"
+                              Margin="0,0,0,12">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Model"
+                                                Binding="{Binding Name}"
+                                                Width="*" />
+                            <DataGridTextColumn Header="Size"
+                                                Binding="{Binding FileSizeDisplay}"
+                                                Width="120" />
+                            <DataGridTextColumn Header="Status"
+                                                Binding="{Binding StatusDisplay}"
+                                                Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Grid.Column="0"
+                                  ItemsSource="{Binding ModelSizes}"
+                                  SelectedValuePath="Size"
+                                  SelectedValue="{Binding SelectedWhisperModel}"
+                                  DisplayMemberPath="DisplayName"
+                                  HorizontalAlignment="Left"
+                                  MinWidth="250" />
+                        <Button Grid.Column="1"
+                                Command="{Binding DownloadWhisperModelCommand}"
+                                Content="Download"
+                                IsEnabled="{Binding IsDownloadingWhisper, Converter={StaticResource InverseBoolConverter}}"
+                                Margin="12,0,0,0" />
+                    </Grid>
+                    <ProgressBar Value="{Binding WhisperDownloadProgress}"
+                                 Visibility="{Binding IsDownloadingWhisper, Converter={StaticResource BoolToVisibility}}"
+                                 Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding WhisperDownloadStatus}"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+
+            <!-- LLM Model -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="LLM Model"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TextBlock Text="Large language model for translation and proofreading."
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,12" />
+
+                    <DataGrid ItemsSource="{Binding LlmModels}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="Column"
+                              Margin="0,0,0,12">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Model"
+                                                Binding="{Binding Name}"
+                                                Width="*" />
+                            <DataGridTextColumn Header="Size"
+                                                Binding="{Binding FileSizeDisplay}"
+                                                Width="120" />
+                            <DataGridTextColumn Header="Status"
+                                                Binding="{Binding StatusDisplay}"
+                                                Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <Button Command="{Binding DownloadLlmModelCommand}"
+                            Content="Download LLM Model (~2GB)"
+                            IsEnabled="{Binding IsDownloadingLlm, Converter={StaticResource InverseBoolConverter}}"
+                            HorizontalAlignment="Left"
+                            Margin="0,0,0,8" />
+                    <ProgressBar Value="{Binding LlmDownloadProgress}"
+                                 Visibility="{Binding IsDownloadingLlm, Converter={StaticResource BoolToVisibility}}"
+                                 Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding LlmDownloadStatus}"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+
+            <!-- FFmpeg -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="FFmpeg"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TextBlock Text="Required for audio extraction and video processing."
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,12" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Border Background="{StaticResource SuccessBrush}"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource BoolToVisibility}}"
+                                Margin="0,0,8,0">
+                            <TextBlock Text="FFmpeg Available" Foreground="White" FontSize="12" />
+                        </Border>
+                        <Border Background="{StaticResource ErrorBrush}"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolVisibilityConverter}}">
+                            <TextBlock Text="Not Available" Foreground="White" FontSize="12" />
+                        </Border>
+                    </StackPanel>
+
+                    <Button Command="{Binding DownloadFfmpegCommand}"
+                            Content="Download FFmpeg"
+                            Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolVisibilityConverter}}"
+                            HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <!-- App Info -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Application Info"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TextBlock Text="Subtitle Studio v1.0.0"
+                               FontSize="14"
+                               Margin="0,0,0,4" />
+                    <TextBlock Text="Built with .NET 10 + WPF"
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,4" />
+                    <TextBlock Text="Models are stored in: %LocalAppData%\SubtitleStudio\"
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

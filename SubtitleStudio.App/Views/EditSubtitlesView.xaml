@@ -1,0 +1,123 @@
+<UserControl x:Class="SubtitleStudio.App.Views.EditSubtitlesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:SubtitleStudio.App.Converters"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <UserControl.Resources>
+        <converters:TimeSpanToStringConverter x:Key="TimeSpanConverter" />
+    </UserControl.Resources>
+
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Step 3: Edit Subtitles"
+                       FontSize="28"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource AccentBrush}"
+                       Margin="0,0,0,4" />
+            <TextBlock Text="Review and edit the generated subtitles"
+                       FontSize="16"
+                       Foreground="{StaticResource TextSecondaryBrush}" />
+        </StackPanel>
+
+        <!-- Search & Toolbar -->
+        <Border Grid.Row="1"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBox Grid.Column="0"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Search subtitles..."
+                         Margin="0,0,12,0" />
+
+                <Button Grid.Column="1"
+                        Command="{Binding AddSubtitleCommand}"
+                        Style="{StaticResource SecondaryButton}"
+                        Content="+ Add"
+                        Margin="4,0"
+                        Padding="12,6"
+                        FontSize="12" />
+
+                <Button Grid.Column="2"
+                        Command="{Binding MergeSubtitlesCommand}"
+                        Style="{StaticResource SecondaryButton}"
+                        Content="Merge"
+                        Margin="4,0"
+                        Padding="12,6"
+                        FontSize="12" />
+
+                <Button Grid.Column="3"
+                        Command="{Binding SplitSubtitleCommand}"
+                        Style="{StaticResource SecondaryButton}"
+                        Content="Split"
+                        Margin="4,0"
+                        Padding="12,6"
+                        FontSize="12" />
+
+                <Button Grid.Column="4"
+                        Command="{Binding DeleteSubtitleCommand}"
+                        Style="{StaticResource DangerButton}"
+                        Content="Delete"
+                        Margin="4,0"
+                        Padding="12,6"
+                        FontSize="12" />
+            </Grid>
+        </Border>
+
+        <!-- DataGrid -->
+        <DataGrid Grid.Row="2"
+                  ItemsSource="{Binding SubtitleItems}"
+                  SelectedItem="{Binding SelectedItem}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="False"
+                  Margin="0,0,0,16">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="#"
+                                    Binding="{Binding Index}"
+                                    Width="50"
+                                    IsReadOnly="True" />
+                <DataGridTextColumn Header="Start"
+                                    Binding="{Binding StartTime, Converter={StaticResource TimeSpanConverter}}"
+                                    Width="120" />
+                <DataGridTextColumn Header="End"
+                                    Binding="{Binding EndTime, Converter={StaticResource TimeSpanConverter}}"
+                                    Width="120" />
+                <DataGridTextColumn Header="Duration"
+                                    Binding="{Binding Duration, Converter={StaticResource TimeSpanConverter}}"
+                                    Width="100"
+                                    IsReadOnly="True" />
+                <DataGridTextColumn Header="Text"
+                                    Binding="{Binding Text}"
+                                    Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Status -->
+        <TextBlock Grid.Row="3"
+                   Text="{Binding StatusMessage}"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="13" />
+    </Grid>
+</UserControl>

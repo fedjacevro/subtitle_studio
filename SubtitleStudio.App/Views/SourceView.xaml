@@ -1,0 +1,145 @@
+<UserControl x:Class="SubtitleStudio.App.Views.SourceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="32">
+        <StackPanel>
+            <!-- Header -->
+            <TextBlock Text="Step 1: Source"
+                       FontSize="28"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource AccentBrush}"
+                       Margin="0,0,0,8" />
+            <TextBlock Text="Load a video file and configure transcription settings"
+                       FontSize="16"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,0,0,24" />
+
+            <!-- FFmpeg Status -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="FFmpeg Status"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,12" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Border Background="{StaticResource SuccessBrush}"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource BoolToVisibility}}"
+                                Margin="0,0,8,0">
+                            <TextBlock Text="FFmpeg Available" Foreground="White" FontSize="12" />
+                        </Border>
+                        <Border Background="{StaticResource ErrorBrush}"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolVisibilityConverter}}"
+                                Margin="0,0,8,0">
+                            <TextBlock Text="FFmpeg Not Available" Foreground="White" FontSize="12" />
+                        </Border>
+                        <Button Command="{Binding DownloadFfmpegCommand}"
+                                IsEnabled="{Binding IsDownloadingFfmpeg, Converter={StaticResource InverseBoolConverter}}"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolConverter}}"
+                                Padding="12,6"
+                                FontSize="12"
+                                Content="Download FFmpeg" />
+                    </StackPanel>
+                    <ProgressBar Value="{Binding FfmpegDownloadProgress}"
+                                 Visibility="{Binding IsDownloadingFfmpeg, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Video Selection -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Video File"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,16" />
+                    <Border Background="{StaticResource SurfaceLightBrush}"
+                            CornerRadius="8"
+                            Padding="16"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            IsHitTestVisible="False"
+                            Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{Binding VideoFileName}"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,4" />
+                            <TextBlock Text="{Binding VideoDuration}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Visibility="{Binding VideoDuration, Converter={StaticResource NullToVisibility}}" />
+                        </StackPanel>
+                    </Border>
+                    <Button Command="{Binding SelectVideoCommand}"
+                            Content="Browse Video Files"
+                            HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <!-- Model Selection -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Whisper Model"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,16" />
+                    <ComboBox ItemsSource="{Binding ModelSizes}"
+                              SelectedValuePath="Size"
+                              SelectedValue="{Binding SelectedModelSize}"
+                              DisplayMemberPath="DisplayName"
+                              HorizontalAlignment="Left"
+                              MinWidth="300"
+                              Margin="0,0,0,12" />
+                    <Button Command="{Binding DownloadWhisperModelCommand}"
+                            Content="Download Model"
+                            HorizontalAlignment="Left"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Language Selection -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Source Language"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TextBlock Text="Select the audio language for better accuracy, or leave as Auto-detect"
+                               FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,12" />
+                    <ComboBox ItemsSource="{Binding SourceLanguages}"
+                              SelectedItem="{Binding SelectedSourceLanguage}"
+                              HorizontalAlignment="Left"
+                              MinWidth="200" />
+                </StackPanel>
+            </Border>
+
+            <!-- Status -->
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontSize="13"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

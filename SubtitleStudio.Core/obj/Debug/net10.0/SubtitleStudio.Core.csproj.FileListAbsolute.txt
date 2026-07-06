@@ -1,0 +1,11 @@
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\bin\Debug\net10.0\SubtitleStudio.Core.deps.json
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\bin\Debug\net10.0\SubtitleStudio.Core.dll
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\bin\Debug\net10.0\SubtitleStudio.Core.pdb
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.AssemblyInfoInputs.cache
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.AssemblyInfo.cs
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.csproj.CoreCompileInputs.cache
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.dll
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\refint\SubtitleStudio.Core.dll
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\SubtitleStudio.Core.pdb
+C:\Users\Neko\subtitle_studio\SubtitleStudio.Core\obj\Debug\net10.0\ref\SubtitleStudio.Core.dll
