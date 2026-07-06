@@ -59,45 +59,38 @@ public class TranscriptionService : ITranscriptionService
 
         _logger.LogInformation("Starting transcription with model {Model}, language: {Lang}", modelSize, language);
 
-        using var whisperFactory = WhisperFactory.FromPath(modelPath);
-        using var processor = whisperFactory.CreateBuilder()
-            .WithLanguage(language)
-            .Build();
-
-        await using var fileStream = File.OpenRead(audioFilePath);
-
-        var segments = new List<(TimeSpan Start, TimeSpan End, string Text)>();
-        int segmentCount = 0;
-
-        await foreach (var segment in processor.ProcessAsync(fileStream, ct))
+        return await Task.Run(async () =>
         {
-            segments.Add((
-                segment.Start,
-                segment.End,
-                segment.Text.Trim()
-            ));
-            segmentCount++;
-            progress?.Report(0.3 + (segmentCount % 100) * 0.005); // Rough progress during processing
-        }
+            using var whisperFactory = WhisperFactory.FromPath(modelPath);
+            var builder = whisperFactory.CreateBuilder();
+            if (!string.IsNullOrWhiteSpace(language) && !language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                builder = builder.WithLanguage(language);
+            using var processor = builder.Build();
 
-        // Sort by start time and create subtitle items
-        var sortedSegments = segments
-            .OrderBy(s => s.Start)
-            .ThenBy(s => s.End)
-            .ToList();
+            await using var fileStream = File.OpenRead(audioFilePath);
 
-        track.Items = sortedSegments
-            .Select((s, i) => new SubtitleItem
+            var segments = new List<(TimeSpan Start, TimeSpan End, string Text)>();
+            var segmentCount = 0;
+
+            await foreach (var segment in processor.ProcessAsync(fileStream, ct))
+            {
+                segments.Add((segment.Start, segment.End, segment.Text.Trim()));
+                segmentCount++;
+                progress?.Report(Math.Min(0.95, segmentCount / 100.0));
+            }
+
+            var sortedSegments = segments.OrderBy(s => s.Start).ThenBy(s => s.End).ToList();
+            track.Items = sortedSegments.Select((s, i) => new SubtitleItem
             {
                 Index = i + 1,
                 StartTime = s.Start,
                 EndTime = s.End,
                 Text = s.Text
-            })
-            .ToList();
+            }).ToList();
 
-        progress?.Report(1.0);
-        _logger.LogInformation("Transcription completed: {Count} segments", track.Items.Count);
-        return track;
+            progress?.Report(1.0);
+            _logger.LogInformation("Transcription completed: {Count} segments", track.Items.Count);
+            return track;
+        }, ct);
     }
 }

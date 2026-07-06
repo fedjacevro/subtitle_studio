@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SubtitleStudio.Core.Models;
+using SubtitleStudio.Core.Helpers;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace SubtitleStudio.App.ViewModels;
 
@@ -23,7 +25,36 @@ public partial class EditSubtitlesViewModel : ObservableObject
     private string? _searchText;
 
     [ObservableProperty]
+    private string? _replaceText;
+
+    [ObservableProperty]
+    private string? _videoFilePath;
+
+    [ObservableProperty]
+    private string? _videoDuration;
+
+    [ObservableProperty]
+    private bool _isPreviewExpanded = true;
+
+    [ObservableProperty]
+    private string _previewToggleLabel = "Hide Preview";
+
+    [ObservableProperty]
+    private int _selectedTimelineIndex;
+
+    [ObservableProperty]
+    private double _playheadRatio;
+
+    [ObservableProperty]
+    private List<TimelineSegment> _timelineSegments = [];
+
+    [ObservableProperty]
     private string? _statusMessage;
+
+    [ObservableProperty]
+    private string? _validationMessage;
+
+    public event Action<TimeSpan>? SeekRequested;
 
     public EditSubtitlesViewModel(ILogger<EditSubtitlesViewModel> logger)
     {
@@ -35,61 +66,194 @@ public partial class EditSubtitlesViewModel : ObservableObject
         if (value != null)
         {
             SubtitleItems = new ObservableCollection<SubtitleItem>(value.Items);
+            VideoFilePath ??= value.VideoFilePath;
             StatusMessage = $"{SubtitleItems.Count} subtitles loaded for editing.";
+            ValidateTimecodes();
+            RefreshTimeline();
         }
     }
 
-    partial void OnSearchTextChanged(string? value)
+    partial void OnSelectedItemChanged(SubtitleItem? value)
     {
-        if (SubtitleTrack == null || string.IsNullOrWhiteSpace(value))
+        if (value == null) return;
+        SelectedTimelineIndex = value.Index;
+        SeekRequested?.Invoke(value.StartTime);
+        UpdatePlayhead(value.StartTime);
+    }
+
+    partial void OnIsPreviewExpandedChanged(bool value) =>
+        PreviewToggleLabel = value ? "Hide Preview" : "Show Preview";
+
+    partial void OnVideoDurationChanged(string? value) => RefreshTimeline();
+
+    [RelayCommand]
+    private void TogglePreview() => IsPreviewExpanded = !IsPreviewExpanded;
+
+    public void OnTimelineSegmentClicked(int index)
+    {
+        var item = SubtitleItems.FirstOrDefault(i => i.Index == index)
+            ?? SubtitleTrack?.Items.FirstOrDefault(i => i.Index == index);
+        if (item == null) return;
+        SelectedItem = item;
+        SeekRequested?.Invoke(item.StartTime);
+        UpdatePlayhead(item.StartTime);
+    }
+
+    private void RefreshTimeline()
+    {
+        if (SubtitleTrack == null)
         {
-            if (SubtitleTrack != null)
-                SubtitleItems = new ObservableCollection<SubtitleItem>(SubtitleTrack.Items);
+            TimelineSegments = [];
             return;
         }
 
-        var filtered = SubtitleTrack.Items
-            .Where(i => i.Text.Contains(value, StringComparison.OrdinalIgnoreCase))
+        TimeSpan? videoDuration = null;
+        if (!string.IsNullOrEmpty(VideoDuration) &&
+            TimeSpan.TryParse(VideoDuration.Replace(',', '.'), CultureInfo.InvariantCulture, out var vd))
+            videoDuration = vd;
+
+        var total = TimelineHelper.GetTotalDuration(SubtitleTrack.Items, videoDuration);
+        TimelineSegments = TimelineHelper.BuildSegments(SubtitleTrack.Items, total);
+    }
+
+    private void UpdatePlayhead(TimeSpan position)
+    {
+        if (SubtitleTrack == null) return;
+        TimeSpan? videoDuration = null;
+        if (!string.IsNullOrEmpty(VideoDuration) &&
+            TimeSpan.TryParse(VideoDuration.Replace(',', '.'), CultureInfo.InvariantCulture, out var vd))
+            videoDuration = vd;
+        var total = TimelineHelper.GetTotalDuration(SubtitleTrack.Items, videoDuration);
+        PlayheadRatio = TimelineHelper.GetPlayheadRatio(position, total);
+    }
+
+    partial void OnSearchTextChanged(string? value) => RefreshSubtitleItemsView();
+
+    public void OnSubtitleEdited()
+    {
+        ValidateTimecodes();
+        RefreshTimeline();
+    }
+
+    private void RefreshSubtitleItemsView()
+    {
+        if (SubtitleTrack == null) return;
+
+        if (string.IsNullOrWhiteSpace(SearchText))
+        {
+            SubtitleItems = new ObservableCollection<SubtitleItem>(SubtitleTrack.Items);
+            StatusMessage = $"{SubtitleTrack.Items.Count} subtitles loaded for editing.";
+        }
+        else
+        {
+            var filtered = SubtitleTrack.Items
+                .Where(i => i.Text.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            SubtitleItems = new ObservableCollection<SubtitleItem>(filtered);
+            StatusMessage = $"{filtered.Count} results found.";
+        }
+    }
+
+    private int FindTrackIndex(SubtitleItem item)
+    {
+        if (SubtitleTrack == null) return -1;
+
+        var idx = SubtitleTrack.Items.IndexOf(item);
+        if (idx >= 0) return idx;
+
+        return SubtitleTrack.Items.FindIndex(i => i.Index == item.Index);
+    }
+
+    private void ReindexTrack()
+    {
+        if (SubtitleTrack == null) return;
+
+        for (var i = 0; i < SubtitleTrack.Items.Count; i++)
+            SubtitleTrack.Items[i].Index = i + 1;
+    }
+
+    [RelayCommand]
+    private void ReplaceAll()
+    {
+        if (SubtitleTrack == null || string.IsNullOrWhiteSpace(SearchText))
+        {
+            StatusMessage = "Enter search text to replace.";
+            return;
+        }
+
+        var count = 0;
+        foreach (var item in SubtitleTrack.Items)
+        {
+            if (item.Text.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
+            {
+                item.Text = item.Text.Replace(SearchText, ReplaceText ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase);
+                count++;
+            }
+        }
+
+        RefreshSubtitleItemsView();
+        StatusMessage = $"Replaced text in {count} subtitle(s).";
+        _logger.LogInformation("Search/replace applied to {Count} subtitles", count);
+        ValidateTimecodes();
+    }
+
+    [RelayCommand]
+    private void ValidateTimecodes()
+    {
+        if (SubtitleTrack == null)
+        {
+            ValidationMessage = null;
+            return;
+        }
+
+        var items = SubtitleTrack.Items
+            .Select(i => (i.Index, i.StartTime, i.EndTime))
             .ToList();
-        SubtitleItems = new ObservableCollection<SubtitleItem>(filtered);
-        StatusMessage = $"{filtered.Count} results found.";
+        ValidationMessage = TimecodeHelper.ValidateSubtitleItems(items);
+        if (ValidationMessage != null)
+            StatusMessage = ValidationMessage;
+    }
+
+    [RelayCommand]
+    private void SeekToSelected()
+    {
+        if (SelectedItem != null)
+            SeekRequested?.Invoke(SelectedItem.StartTime);
     }
 
     [RelayCommand]
     private void MergeSubtitles()
     {
-        if (SelectedItem == null) return;
+        if (SelectedItem == null || SubtitleTrack == null) return;
 
-        var index = SubtitleItems.IndexOf(SelectedItem);
-        if (index < 0 || index >= SubtitleItems.Count - 1) return;
+        var trackIndex = FindTrackIndex(SelectedItem);
+        if (trackIndex < 0 || trackIndex >= SubtitleTrack.Items.Count - 1) return;
 
-        var current = SubtitleItems[index];
-        var next = SubtitleItems[index + 1];
+        var current = SubtitleTrack.Items[trackIndex];
+        var next = SubtitleTrack.Items[trackIndex + 1];
 
         current.Text = $"{current.Text} {next.Text}";
         current.EndTime = next.EndTime;
 
-        SubtitleItems.RemoveAt(index + 1);
-        if (SubtitleTrack != null)
-        {
-            SubtitleTrack.Items = [..SubtitleItems];
-            // Re-index
-            for (int i = 0; i < SubtitleTrack.Items.Count; i++)
-                SubtitleTrack.Items[i].Index = i + 1;
-        }
-
+        SubtitleTrack.Items.RemoveAt(trackIndex + 1);
+        ReindexTrack();
+        RefreshSubtitleItemsView();
+        SelectedItem = current;
         StatusMessage = "Subtitles merged.";
+        ValidateTimecodes();
+        RefreshTimeline();
     }
 
     [RelayCommand]
     private void SplitSubtitle()
     {
-        if (SelectedItem == null) return;
+        if (SelectedItem == null || SubtitleTrack == null) return;
 
-        var index = SubtitleItems.IndexOf(SelectedItem);
-        if (index < 0) return;
+        var trackIndex = FindTrackIndex(SelectedItem);
+        if (trackIndex < 0) return;
 
-        var item = SelectedItem;
+        var item = SubtitleTrack.Items[trackIndex];
         var midPoint = item.Text.Length / 2;
         var spaceIdx = item.Text.IndexOf(' ', midPoint);
         if (spaceIdx < 0) spaceIdx = midPoint;
@@ -98,7 +262,8 @@ public partial class EditSubtitlesViewModel : ObservableObject
         var secondPart = item.Text[spaceIdx..].Trim();
         if (string.IsNullOrEmpty(firstPart) || string.IsNullOrEmpty(secondPart)) return;
 
-        var midTime = item.StartTime + (item.EndTime - item.StartTime) / 2;
+        var originalEnd = item.EndTime;
+        var midTime = item.StartTime + (originalEnd - item.StartTime) / 2;
 
         item.Text = firstPart;
         item.EndTime = midTime;
@@ -107,56 +272,54 @@ public partial class EditSubtitlesViewModel : ObservableObject
         {
             Index = item.Index + 1,
             StartTime = midTime,
-            EndTime = item.EndTime,
+            EndTime = originalEnd,
             Text = secondPart
         };
 
-        SubtitleItems.Insert(index + 1, newItem);
-
-        if (SubtitleTrack != null)
-        {
-            SubtitleTrack.Items = [..SubtitleItems];
-            // Re-index
-            for (int i = 0; i < SubtitleTrack.Items.Count; i++)
-                SubtitleTrack.Items[i].Index = i + 1;
-        }
-
+        SubtitleTrack.Items.Insert(trackIndex + 1, newItem);
+        ReindexTrack();
+        RefreshSubtitleItemsView();
+        SelectedItem = item;
         StatusMessage = "Subtitle split.";
+        ValidateTimecodes();
+        RefreshTimeline();
     }
 
     [RelayCommand]
     private void DeleteSubtitle()
     {
-        if (SelectedItem == null) return;
+        if (SelectedItem == null || SubtitleTrack == null) return;
 
-        SubtitleItems.Remove(SelectedItem);
-        if (SubtitleTrack != null)
-        {
-            SubtitleTrack.Items = [..SubtitleItems];
-            for (int i = 0; i < SubtitleTrack.Items.Count; i++)
-                SubtitleTrack.Items[i].Index = i + 1;
-        }
+        var trackIndex = FindTrackIndex(SelectedItem);
+        if (trackIndex < 0) return;
 
+        SubtitleTrack.Items.RemoveAt(trackIndex);
+        ReindexTrack();
+        RefreshSubtitleItemsView();
         StatusMessage = "Subtitle deleted.";
+        ValidateTimecodes();
+        RefreshTimeline();
     }
 
     [RelayCommand]
     private void AddSubtitle()
     {
+        if (SubtitleTrack == null) return;
+
         var newItem = new SubtitleItem
         {
-            Index = (SubtitleTrack?.Items.Count ?? 0) + 1,
+            Index = SubtitleTrack.Items.Count + 1,
             StartTime = TimeSpan.Zero,
             EndTime = TimeSpan.FromSeconds(3),
             Text = "New subtitle"
         };
 
-        SubtitleItems.Add(newItem);
-        if (SubtitleTrack != null)
-        {
-            SubtitleTrack.Items = [..SubtitleItems];
-        }
-
+        SubtitleTrack.Items.Add(newItem);
+        ReindexTrack();
+        RefreshSubtitleItemsView();
+        SelectedItem = newItem;
         StatusMessage = "New subtitle added.";
+        ValidateTimecodes();
+        RefreshTimeline();
     }
 }

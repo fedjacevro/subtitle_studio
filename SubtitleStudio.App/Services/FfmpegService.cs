@@ -1,5 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using SubtitleStudio.App.Helpers;
+using SubtitleStudio.Core.Helpers;
+using SubtitleStudio.Core.Models;
 using System.Net.Http;
 using Microsoft.Extensions.Logging;
 
@@ -113,7 +117,7 @@ public class FfmpegService
     }
 
     public async Task BurnSubtitlesAsync(string videoFilePath, string subtitlesFilePath, string outputPath,
-        string? fontName = null, int fontSize = 24, CancellationToken ct = default)
+        string? fontName = null, int fontSize = 24, string? fontColor = null, CancellationToken ct = default)
     {
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(dir))
@@ -123,15 +127,18 @@ public class FfmpegService
             File.Delete(outputPath);
 
         var font = fontName ?? "Arial";
+        var color = ToAssColor(fontColor ?? "white");
         var ffmpegPath = GetFfmpegPath();
-        var arguments = $"-i \"{videoFilePath}\" -vf \"subtitles='{subtitlesFilePath.Replace("'", "'\\''")}':force_style='Fontname={font},Fontsize={fontSize}'\" -c:a copy \"{outputPath}\"";
+        var escapedSubs = FfmpegPathHelper.EscapeSubtitlePath(subtitlesFilePath);
+        var arguments =
+            $"-i \"{videoFilePath}\" -vf \"subtitles='{escapedSubs}':force_style='Fontname={font},Fontsize={fontSize},PrimaryColour={color}'\" -c:a copy \"{outputPath}\"";
 
         _logger.LogInformation("Burning subtitles: ffmpeg {Args}", arguments);
 
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegPath,
-            Arguments = arguments.Replace("'\\''", "'\\\\''"),
+            Arguments = arguments,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -140,11 +147,20 @@ public class FfmpegService
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
+
+        var errorOutput = new List<string>();
+        var readStderr = Task.Run(async () =>
+        {
+            while (await process.StandardError.ReadLineAsync(ct) is { } line)
+                errorOutput.Add(line);
+        }, ct);
+
         await process.WaitForExitAsync(ct);
+        await readStderr;
 
         if (process.ExitCode != 0)
         {
-            var error = await process.StandardError.ReadToEndAsync(ct);
+            var error = string.Join("\n", errorOutput);
             _logger.LogError("FFmpeg burn failed: {Error}", error);
             throw new InvalidOperationException($"Failed to burn subtitles: {error}");
         }
@@ -269,4 +285,103 @@ public class FfmpegService
         }
         return null;
     }
+
+    public async Task<VideoInfo> ProbeVideoAsync(string videoFilePath, CancellationToken ct = default)
+    {
+        var info = new VideoInfo
+        {
+            FilePath = videoFilePath,
+            FileName = Path.GetFileName(videoFilePath),
+            FileSizeDisplay = FormatFileSize(new FileInfo(videoFilePath).Length)
+        };
+
+        var ffmpegPath = GetFfmpegPath();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = $"-i \"{videoFilePath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+        var output = await process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+
+        info.Duration = ParseDuration(output);
+        if (TimeSpan.TryParse(info.Duration?.Replace(',', '.'), CultureInfo.InvariantCulture, out var ts))
+            info.DurationTimeSpan = ts;
+
+        var resolutionMatch = Regex.Match(output, @"(\d{2,5})x(\d{2,5})");
+        if (resolutionMatch.Success)
+            info.Resolution = $"{resolutionMatch.Groups[1].Value}x{resolutionMatch.Groups[2].Value}";
+
+        var videoCodecMatch = Regex.Match(output, @"Video:\s*(\w+)", RegexOptions.IgnoreCase);
+        if (videoCodecMatch.Success)
+            info.VideoCodec = videoCodecMatch.Groups[1].Value;
+
+        var audioCodecMatch = Regex.Match(output, @"Audio:\s*(\w+)", RegexOptions.IgnoreCase);
+        if (audioCodecMatch.Success)
+            info.AudioCodec = audioCodecMatch.Groups[1].Value;
+
+        return info;
+    }
+
+    public async Task<string?> ExtractThumbnailAsync(string videoFilePath, CancellationToken ct = default)
+    {
+        var thumbDir = Path.Combine(Constants.GetAppDataPath(), "temp", "thumbnails");
+        Directory.CreateDirectory(thumbDir);
+        var thumbPath = Path.Combine(thumbDir,
+            $"{Path.GetFileNameWithoutExtension(videoFilePath)}_{Math.Abs(videoFilePath.GetHashCode())}.jpg");
+
+        if (File.Exists(thumbPath))
+            return thumbPath;
+
+        var ffmpegPath = GetFfmpegPath();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = $"-y -ss 00:00:01 -i \"{videoFilePath}\" -vframes 1 -q:v 2 \"{thumbPath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+        await process.WaitForExitAsync(ct);
+
+        return process.ExitCode == 0 && File.Exists(thumbPath) ? thumbPath : null;
+    }
+
+    private static string? ParseDuration(string ffmpegOutput)
+    {
+        var line = ffmpegOutput.Split('\n')
+            .FirstOrDefault(l => l.Trim().StartsWith("Duration:", StringComparison.OrdinalIgnoreCase));
+        return line?.Split("Duration:")[1].Split(',')[0].Trim();
+    }
+
+    private static string FormatFileSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+    };
+
+    private static string ToAssColor(string colorName) => colorName.Trim().ToLowerInvariant() switch
+    {
+        "white" => "&H00FFFFFF",
+        "yellow" => "&H0000FFFF",
+        "black" => "&H00000000",
+        "red" => "&H000000FF",
+        "green" => "&H0000FF00",
+        "blue" => "&H00FF0000",
+        "cyan" => "&H00FFFF00",
+        _ => "&H00FFFFFF"
+    };
 }

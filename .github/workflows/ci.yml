@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore SubtitleStudio.sln
+
+      - name: Build
+        run: dotnet build SubtitleStudio.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test SubtitleStudio.sln -c Release --no-build --verbosity normal
+
+      - name: Publish self-contained portable build
+        run: >
+          dotnet publish SubtitleStudio.App/SubtitleStudio.App.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:PublishReadyToRun=true
+          -o artifacts/publish/win-x64
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubtitleStudio-win-x64
+          path: artifacts/publish/win-x64/
+
+  msix:
+    runs-on: windows-latest
+    needs: build-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build MSIX package
+        shell: pwsh
+        run: ./scripts/build-msix.ps1 -Configuration Release -OutputDir artifacts/msix
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubtitleStudio-msix
+          path: artifacts/msix/SubtitleStudio.msix

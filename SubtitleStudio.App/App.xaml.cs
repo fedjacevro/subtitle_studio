@@ -1,7 +1,9 @@
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SubtitleStudio.App.Helpers;
 using SubtitleStudio.App.Services;
+using SubtitleStudio.Core.Configuration;
 using SubtitleStudio.App.ViewModels;
 using SubtitleStudio.App.Views;
 using SubtitleStudio.Core.Interfaces;
@@ -15,15 +17,22 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         var services = new ServiceCollection();
+        var appSettings = AppSettings.Load();
+        var logDir = Path.Combine(Constants.GetAppDataPath(), "logs");
+        Directory.CreateDirectory(logDir);
+        var logPath = Path.Combine(logDir, "subtitlestudio.log");
 
-        // Logging
         services.AddLogging(builder =>
         {
             builder.AddConsole();
-            builder.SetMinimumLevel(LogLevel.Information);
+            LoggingSetup.Configure(builder, appSettings.Logging, logPath);
         });
 
-        // Services
+        services.AddSingleton(appSettings);
+        services.AddSingleton<DownloadConsentService>();
+        services.AddSingleton<UserNotificationService>();
+        services.AddSingleton<ProgressDialogService>();
+
         services.AddHttpClient<IModelDownloadService, ModelDownloadService>();
         services.AddSingleton<FfmpegService>();
         services.AddSingleton<IVideoProcessingService, VideoProcessingService>();
@@ -31,7 +40,6 @@ public partial class App : Application
         services.AddSingleton<ITranslationService, TranslationService>();
         services.AddSingleton<ISubtitleExportService, SubtitleExportService>();
 
-        // ViewModels — all singletons to preserve state across tab navigation
         services.AddSingleton<SourceViewModel>();
         services.AddSingleton<TranscribeViewModel>();
         services.AddSingleton<EditSubtitlesViewModel>();
@@ -40,7 +48,6 @@ public partial class App : Application
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<MainViewModel>();
 
-        // Views
         services.AddTransient<SourceView>();
         services.AddTransient<TranscribeView>();
         services.AddTransient<EditSubtitlesView>();
@@ -48,10 +55,12 @@ public partial class App : Application
         services.AddTransient<ExportView>();
         services.AddTransient<SettingsView>();
 
-        // Main Window
         services.AddSingleton<MainWindow>();
 
         ServiceProvider = services.BuildServiceProvider();
+
+        var logger = ServiceProvider.GetRequiredService<ILogger<App>>();
+        logger.LogInformation("Subtitle Studio v1.0 starting");
 
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -59,6 +68,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (ServiceProvider?.GetService<ITranslationService>() is IDisposable disposable)
+            disposable.Dispose();
+
         ServiceProvider?.Dispose();
         base.OnExit(e);
     }

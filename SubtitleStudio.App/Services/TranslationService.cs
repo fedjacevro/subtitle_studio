@@ -1,16 +1,20 @@
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.Core.Models;
+using SubtitleStudio.Core.Helpers;
 using SubtitleStudio.App.Helpers;
+using SubtitleStudio.Core.Configuration;
 using Microsoft.Extensions.Logging;
 using LLama;
 using LLama.Common;
+using LLama.Sampling;
 
 namespace SubtitleStudio.App.Services;
 
-public class TranslationService : ITranslationService
+public class TranslationService : ITranslationService, IDisposable
 {
     private readonly IModelDownloadService _downloadService;
     private readonly ILogger<TranslationService> _logger;
+    private readonly AppSettings _settings;
     private LLamaWeights? _weights;
     private LLamaContext? _context;
 
@@ -18,6 +22,7 @@ public class TranslationService : ITranslationService
     {
         _downloadService = downloadService;
         _logger = logger;
+        _settings = AppSettings.Load();
     }
 
     private string GetModelPath()
@@ -30,6 +35,14 @@ public class TranslationService : ITranslationService
         var modelPath = GetModelPath();
         if (!_downloadService.FileExists(modelPath))
             return false;
+
+        if (!SystemMemoryHelper.HasMinimumAvailableMemory(_settings.Models.MinimumRamBytes))
+        {
+            var available = SystemMemoryHelper.GetAvailablePhysicalMemoryBytes();
+            _logger.LogWarning("Insufficient memory for LLM. Available: {Available}, Required: {Required}",
+                SystemMemoryHelper.FormatBytes(available), SystemMemoryHelper.FormatBytes(_settings.Models.MinimumRamBytes));
+            return false;
+        }
 
         try
         {
@@ -65,7 +78,8 @@ public class TranslationService : ITranslationService
         }
 
         _logger.LogInformation("Downloading LLM model...");
-        await _downloadService.DownloadFileAsync(Constants.LlmModelDownloadUrl, modelPath, progress, ct);
+        await _downloadService.DownloadFileAsync(Constants.LlmModelDownloadUrl, modelPath, progress, ct,
+            string.IsNullOrWhiteSpace(_settings.Models.LlmExpectedSha256) ? null : _settings.Models.LlmExpectedSha256);
     }
 
     private string GetScriptInstruction(string targetLanguage, string script)
@@ -116,31 +130,20 @@ Source:
 
             var result = await ExecuteInferenceAsync(prompt);
 
-            // Parse results back
-            var lines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
+            var parsed = LlmResponseParser.ParseNumberedLines(result, chunkIdx, chunkSize, items, (item, text) =>
+                item.SetTranslation(targetLanguage, text));
+            if (parsed < chunkItems.Count)
             {
-                var trimmedLine = line.Trim();
-                if (trimmedLine.StartsWith('[') && trimmedLine.Contains(']'))
-                {
-                    var closeBracket = trimmedLine.IndexOf(']');
-                    if (int.TryParse(trimmedLine.Substring(1, closeBracket - 1), out var idx))
-                    {
-                        var actualIdx = chunkIdx * chunkSize + idx - 1;
-                        if (actualIdx >= 0 && actualIdx < items.Count)
-                        {
-                            var text = trimmedLine[(closeBracket + 1)..].Trim();
-                            if (!string.IsNullOrEmpty(text))
-                                items[actualIdx].TranslatedText = text;
-                        }
-                    }
-                }
+                _logger.LogWarning(
+                    "Translation chunk {Chunk}/{Total}: parsed {Parsed}/{Expected} lines. Some subtitles may be missing.",
+                    chunkIdx + 1, totalChunks, parsed, chunkItems.Count);
             }
 
             progress?.Report((double)(chunkIdx + 1) / totalChunks);
         }
 
         track.TargetLanguage = targetLanguage;
+        track.RegisterTranslatedLanguage(targetLanguage);
         progress?.Report(1.0);
         _logger.LogInformation("Translation completed for {Count} items", items.Count);
     }
@@ -167,7 +170,7 @@ Source:
 
             var chunkItems = items.Skip(chunkIdx * chunkSize).Take(chunkSize).ToList();
             var textBlock = string.Join("\n", chunkItems.Select((item, idx) =>
-                $"[{idx + 1}] {item.TranslatedText ?? item.Text}"));
+                $"[{idx + 1}] {item.GetDisplayTextForLanguage(targetLanguage, useProofread: false)}"));
 
             var prompt = $@"Proofread and correct any grammar or spelling mistakes in the following {targetName} subtitles. 
 Keep the meaning and line count exactly the same. 
@@ -181,24 +184,13 @@ Source:
 
             var result = await ExecuteInferenceAsync(prompt);
 
-            var lines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
+            var parsed = LlmResponseParser.ParseNumberedLines(result, chunkIdx, chunkSize, items, (item, text) =>
+                item.SetProofread(targetLanguage, text));
+            if (parsed < chunkItems.Count)
             {
-                var trimmedLine = line.Trim();
-                if (trimmedLine.StartsWith('[') && trimmedLine.Contains(']'))
-                {
-                    var closeBracket = trimmedLine.IndexOf(']');
-                    if (int.TryParse(trimmedLine.Substring(1, closeBracket - 1), out var idx))
-                    {
-                        var actualIdx = chunkIdx * chunkSize + idx - 1;
-                        if (actualIdx >= 0 && actualIdx < items.Count)
-                        {
-                            var text = trimmedLine[(closeBracket + 1)..].Trim();
-                            if (!string.IsNullOrEmpty(text))
-                                items[actualIdx].ProofreadText = text;
-                        }
-                    }
-                }
+                _logger.LogWarning(
+                    "Proofread chunk {Chunk}/{Total}: parsed {Parsed}/{Expected} lines. Some subtitles may be missing.",
+                    chunkIdx + 1, totalChunks, parsed, chunkItems.Count);
             }
 
             progress?.Report((double)(chunkIdx + 1) / totalChunks);
@@ -213,22 +205,26 @@ Source:
         if (_context == null || _weights == null)
             throw new InvalidOperationException("LLM model not loaded");
 
-        var executor = new InteractiveExecutor(_context);
-        var session = new ChatSession(executor);
-        var inferenceParams = new InferenceParams
+        return await Task.Run(async () =>
         {
-            MaxTokens = 2048,
-            AntiPrompts = ["User:", "Assistant:", "\n\n"],
-        };
+            var executor = new InteractiveExecutor(_context);
+            var session = new ChatSession(executor);
+            var inferenceParams = new InferenceParams
+            {
+                MaxTokens = 2048,
+                AntiPrompts = ["User:", "Assistant:", "\n\n"],
+                SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.1f }
+            };
 
-        session.History.AddMessage(AuthorRole.User, prompt);
-        var result = string.Empty;
-        await foreach (var text in session.ChatAsync(session.History.Messages.Last(), inferenceParams))
-        {
-            result += text;
-        }
+            session.History.AddMessage(AuthorRole.User, prompt);
+            var result = string.Empty;
+            await foreach (var text in session.ChatAsync(session.History.Messages.Last(), inferenceParams))
+            {
+                result += text;
+            }
 
-        return result.Trim();
+            return result.Trim();
+        });
     }
 
     public void Dispose()

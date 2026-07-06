@@ -71,7 +71,7 @@
                                          HorizontalAlignment="Left"
                                          MinWidth="200" />
                             </Grid>
-                            <Grid>
+                            <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="160" />
                                     <ColumnDefinition Width="*" />
@@ -81,6 +81,18 @@
                                          Text="{Binding FontSize}"
                                          HorizontalAlignment="Left"
                                          MinWidth="100" />
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Font Color:" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding FontColors}"
+                                          SelectedItem="{Binding FontColor}"
+                                          HorizontalAlignment="Left"
+                                          MinWidth="150" />
                             </Grid>
                         </StackPanel>
                     </Expander>

@@ -17,6 +17,7 @@
             <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
             <converters:FilePathToFileNameConverter x:Key="FileNameConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToVisibility" />
+            <converters:PathToImageConverter x:Key="PathToImageConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

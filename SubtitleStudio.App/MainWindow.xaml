@@ -49,9 +49,11 @@
                         BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="0,0,0,1">
                     <StackPanel>
-                        <TextBlock Text="&#x1F3AC;"
+                        <TextBlock Text="&#xE714;"
+                                   FontFamily="Segoe MDL2 Assets"
                                    Margin="0,0,0,8"
                                    FontSize="32"
+                                   Foreground="{StaticResource AccentBrush}"
                                    TextAlignment="Center" />
                         <TextBlock Text="Subtitle Studio"
                                    FontSize="18"
@@ -73,8 +75,8 @@
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="1"
-                                     Margin="0,0,12,0" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
+                            <TextBlock Text="&#xE8B2;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                     Margin="0,0,12,0" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
                             <StackPanel>
                                 <TextBlock Text="Source" FontWeight="SemiBold" />
                                 <TextBlock Text="Load video" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -85,13 +87,15 @@
                     <!-- Step 2: Transcribe -->
                     <Button Command="{Binding NavigateToCommand}"
                             CommandParameter="1"
+                            Background="{Binding CurrentStep, Converter={StaticResource StepToBackgroundConverter}, ConverterParameter=1}"
                             Style="{StaticResource SecondaryButton}"
                             BorderThickness="3,0,0,0"
+                            BorderBrush="{Binding CurrentStep, Converter={StaticResource StepToBorderConverter}, ConverterParameter=1}"
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="2"
-                                     Margin="0,0,12,0" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
+                            <TextBlock Text="&#xE720;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                     Margin="0,0,12,0" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
                             <StackPanel>
                                 <TextBlock Text="Transcribe" FontWeight="SemiBold" />
                                 <TextBlock Text="Generate subtitles" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -102,13 +106,15 @@
                     <!-- Step 3: Edit Subtitles -->
                     <Button Command="{Binding NavigateToCommand}"
                             CommandParameter="2"
+                            Background="{Binding CurrentStep, Converter={StaticResource StepToBackgroundConverter}, ConverterParameter=2}"
                             Style="{StaticResource SecondaryButton}"
                             BorderThickness="3,0,0,0"
+                            BorderBrush="{Binding CurrentStep, Converter={StaticResource StepToBorderConverter}, ConverterParameter=2}"
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="3"
-                                     Margin="0,0,12,0" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
+                            <TextBlock Text="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                     Margin="0,0,12,0" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
                             <StackPanel>
                                 <TextBlock Text="Edit" FontWeight="SemiBold" />
                                 <TextBlock Text="Review &amp; adjust" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -119,13 +125,15 @@
                     <!-- Step 4: Translate -->
                     <Button Command="{Binding NavigateToCommand}"
                             CommandParameter="3"
+                            Background="{Binding CurrentStep, Converter={StaticResource StepToBackgroundConverter}, ConverterParameter=3}"
                             Style="{StaticResource SecondaryButton}"
                             BorderThickness="3,0,0,0"
+                            BorderBrush="{Binding CurrentStep, Converter={StaticResource StepToBorderConverter}, ConverterParameter=3}"
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="4"
-                                     Margin="0,0,12,0" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
+                            <TextBlock Text="&#xE775;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                     Margin="0,0,12,0" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
                             <StackPanel>
                                 <TextBlock Text="Translate" FontWeight="SemiBold" />
                                 <TextBlock Text="Multi-language" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -136,13 +144,15 @@
                     <!-- Step 5: Export -->
                     <Button Command="{Binding NavigateToCommand}"
                             CommandParameter="4"
+                            Background="{Binding CurrentStep, Converter={StaticResource StepToBackgroundConverter}, ConverterParameter=4}"
                             Style="{StaticResource SecondaryButton}"
                             BorderThickness="3,0,0,0"
+                            BorderBrush="{Binding CurrentStep, Converter={StaticResource StepToBorderConverter}, ConverterParameter=4}"
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="5"
-                                     Margin="0,0,12,0" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
+                            <TextBlock Text="&#xE898;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                     Margin="0,0,12,0" Foreground="{StaticResource AccentLightBrush}" MinWidth="20" />
                             <StackPanel>
                                 <TextBlock Text="Export" FontWeight="SemiBold" />
                                 <TextBlock Text="SRT/VTT/Burn-in" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -156,8 +166,10 @@
                     <!-- Settings -->
                     <Button Command="{Binding NavigateToCommand}"
                             CommandParameter="5"
+                            Background="{Binding CurrentStep, Converter={StaticResource StepToBackgroundConverter}, ConverterParameter=5}"
                             Style="{StaticResource SecondaryButton}"
                             BorderThickness="3,0,0,0"
+                            BorderBrush="{Binding CurrentStep, Converter={StaticResource StepToBorderConverter}, ConverterParameter=5}"
                             HorizontalContentAlignment="Left"
                             Padding="16,14">
                         <StackPanel Orientation="Horizontal">
@@ -237,9 +249,24 @@
                     Padding="24,8"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0,1,0,0">
-                <TextBlock Text="Ready"
-                           FontSize="12"
-                           Foreground="{StaticResource TextSecondaryBrush}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding GlobalStatus}"
+                               FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <ProgressBar Grid.Column="1"
+                                 Width="120"
+                                 Height="4"
+                                 IsIndeterminate="True"
+                                 Margin="16,0,0,0"
+                                 Visibility="{Binding IsOperationRunning, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
             </Border>
         </Grid>
     </Grid>

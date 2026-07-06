@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Authors>Subtitle Studio</Authors>
+    <Company>Subtitle Studio</Company>
+    <Product>Subtitle Studio</Product>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

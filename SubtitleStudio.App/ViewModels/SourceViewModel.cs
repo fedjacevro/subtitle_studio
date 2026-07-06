@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.Core.Models;
 using SubtitleStudio.App.Helpers;
+using SubtitleStudio.App.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
@@ -12,6 +13,9 @@ public partial class SourceViewModel : ObservableObject
 {
     private readonly IVideoProcessingService _videoService;
     private readonly ITranscriptionService _transcriptionService;
+    private readonly DownloadConsentService _consentService;
+    private readonly ProgressDialogService _progressDialog;
+    private readonly UserNotificationService _notifications;
     private readonly ILogger<SourceViewModel> _logger;
 
     [ObservableProperty]
@@ -24,6 +28,12 @@ public partial class SourceViewModel : ObservableObject
     private string? _videoDuration;
 
     [ObservableProperty]
+    private string? _videoSummary;
+
+    [ObservableProperty]
+    private string? _thumbnailPath;
+
+    [ObservableProperty]
     private WhisperModelSize _selectedModelSize = WhisperModelSize.Small;
 
     [ObservableProperty]
@@ -33,10 +43,7 @@ public partial class SourceViewModel : ObservableObject
     private bool _isFfmpegAvailable;
 
     [ObservableProperty]
-    private bool _isDownloadingFfmpeg;
-
-    [ObservableProperty]
-    private double _ffmpegDownloadProgress;
+    private bool _isLoadingVideo;
 
     [ObservableProperty]
     private string? _statusMessage;
@@ -45,20 +52,30 @@ public partial class SourceViewModel : ObservableObject
     private bool _isBusy;
 
     public List<WhisperModelSizeOption> ModelSizes { get; } = WhisperModelSizeOption.GetAll();
-
     public List<string> SourceLanguages { get; } = TranslationLanguage.GetWhisperLanguageCodes();
 
-    public SourceViewModel(IVideoProcessingService videoService, ITranscriptionService transcriptionService,
+    public SourceViewModel(
+        IVideoProcessingService videoService,
+        ITranscriptionService transcriptionService,
+        DownloadConsentService consentService,
+        ProgressDialogService progressDialog,
+        UserNotificationService notifications,
         ILogger<SourceViewModel> logger)
     {
         _videoService = videoService;
         _transcriptionService = transcriptionService;
+        _consentService = consentService;
+        _progressDialog = progressDialog;
+        _notifications = notifications;
         _logger = logger;
     }
 
     public async Task InitializeAsync()
     {
         IsFfmpegAvailable = await _videoService.IsFfmpegAvailableAsync();
+        StatusMessage = IsFfmpegAvailable
+            ? "Ready — select a video to begin."
+            : "FFmpeg is required. Download it to continue.";
     }
 
     [RelayCommand]
@@ -70,43 +87,55 @@ public partial class SourceViewModel : ObservableObject
             Filter = "Video Files|*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.flv;*.webm|All Files|*.*"
         };
 
-        if (dialog.ShowDialog() == true)
-        {
-            VideoFilePath = dialog.FileName;
-            VideoFileName = Path.GetFileName(dialog.FileName);
-            StatusMessage = $"Loaded: {VideoFileName}";
-            _logger.LogInformation("Video selected: {Path}", VideoFilePath);
+        if (dialog.ShowDialog() != true)
+            return;
 
-            // Get video duration
+        VideoFilePath = dialog.FileName;
+        VideoFileName = Path.GetFileName(dialog.FileName);
+        IsLoadingVideo = true;
+        StatusMessage = "Loading video metadata...";
+
+        try
+        {
+            var info = await _videoService.GetVideoInfoAsync(VideoFilePath);
+            VideoDuration = info.Duration;
+            VideoSummary = info.Summary;
+
+            if (IsFfmpegAvailable)
+            {
+                ThumbnailPath = await _videoService.ExtractThumbnailAsync(VideoFilePath);
+            }
+
+            StatusMessage = $"Loaded: {VideoFileName}";
+            _logger.LogInformation("Video selected: {Path} — {Summary}", VideoFilePath, VideoSummary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load video metadata");
             VideoDuration = _videoService.GetVideoDuration(VideoFilePath);
+            StatusMessage = $"Loaded: {VideoFileName} (metadata partial)";
+            _notifications.ShowError("Video Info", $"Could not read full video metadata: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingVideo = false;
         }
     }
 
     [RelayCommand]
     private async Task DownloadFfmpegAsync()
     {
-        IsDownloadingFfmpeg = true;
-        StatusMessage = "Downloading FFmpeg...";
-        try
+        if (!_consentService.EnsureConsent("FFmpeg", "~80 MB"))
+            return;
+
+        await _progressDialog.RunAsync("Downloading FFmpeg", async (progress, ct) =>
         {
-            var progress = new Progress<double>(p =>
-            {
-                FfmpegDownloadProgress = p;
-                StatusMessage = $"Downloading FFmpeg... {p * 100:F0}%";
-            });
-            await _videoService.DownloadFfmpegAsync(progress);
+            var inner = new Progress<double>(p =>
+                progress.Report(new ProgressReport(p, $"Downloading FFmpeg... {p * 100:F0}%")));
+            await _videoService.DownloadFfmpegAsync(inner, ct);
             IsFfmpegAvailable = await _videoService.IsFfmpegAvailableAsync();
             StatusMessage = "FFmpeg downloaded successfully!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to download FFmpeg");
-            StatusMessage = $"Failed to download FFmpeg: {ex.Message}";
-        }
-        finally
-        {
-            IsDownloadingFfmpeg = false;
-        }
+        });
     }
 
     [RelayCommand]
@@ -118,21 +147,28 @@ public partial class SourceViewModel : ObservableObject
             return;
         }
 
+        if (!_consentService.EnsureConsent($"Whisper {SelectedModelSize.GetDisplayName()}",
+                SelectedModelSize.GetApproximateSizeBytes() switch
+                {
+                    < 200_000_000 => "~75–140 MB",
+                    < 600_000_000 => "~460 MB",
+                    < 2_000_000_000 => "~1.5 GB",
+                    _ => "~2.9 GB"
+                }))
+            return;
+
         IsBusy = true;
-        StatusMessage = $"Downloading {SelectedModelSize.GetDisplayName()}...";
         try
         {
-            var progress = new Progress<double>(p =>
-            {
-                StatusMessage = $"Downloading {SelectedModelSize.GetDisplayName()}... {p * 100:F0}%";
-            });
-            await _transcriptionService.DownloadModelAsync(SelectedModelSize, progress);
-            StatusMessage = $"Model {SelectedModelSize.GetDisplayName()} downloaded!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to download Whisper model");
-            StatusMessage = $"Download failed: {ex.Message}";
+            await _progressDialog.RunAsync($"Downloading {SelectedModelSize.GetDisplayName()}",
+                async (progress, ct) =>
+                {
+                    var inner = new Progress<double>(p =>
+                        progress.Report(new ProgressReport(p,
+                            $"Downloading {SelectedModelSize.GetDisplayName()}... {p * 100:F0}%")));
+                    await _transcriptionService.DownloadModelAsync(SelectedModelSize, inner, ct);
+                    StatusMessage = $"Model {SelectedModelSize.GetDisplayName()} downloaded!";
+                });
         }
         finally
         {

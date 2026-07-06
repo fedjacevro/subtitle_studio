@@ -10,6 +10,13 @@ public class SubtitleTrack
     public string? VideoFilePath { get; set; }
     public string? AudioFilePath { get; set; }
     public List<SubtitleItem> Items { get; set; } = [];
+    public List<string> TranslatedLanguageCodes { get; set; } = [];
+
+    public void RegisterTranslatedLanguage(string languageCode)
+    {
+        if (!TranslatedLanguageCodes.Contains(languageCode, StringComparer.OrdinalIgnoreCase))
+            TranslatedLanguageCodes.Add(languageCode);
+    }
 
     public SubtitleTrack Clone() => new()
     {
@@ -17,6 +24,7 @@ public class SubtitleTrack
         TargetLanguage = TargetLanguage,
         VideoFilePath = VideoFilePath,
         AudioFilePath = AudioFilePath,
-        Items = Items.Select(i => i.Clone()).ToList()
+        Items = Items.Select(i => i.Clone()).ToList(),
+        TranslatedLanguageCodes = [..TranslatedLanguageCodes]
     };
 }

@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:converters="clr-namespace:SubtitleStudio.App.Converters"
+             xmlns:controls="clr-namespace:SubtitleStudio.App.Controls"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
     <UserControl.Resources>
@@ -14,110 +15,127 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Step 3: Edit Subtitles"
                        FontSize="28"
                        FontWeight="Bold"
                        Foreground="{StaticResource AccentBrush}"
                        Margin="0,0,0,4" />
-            <TextBlock Text="Review and edit the generated subtitles"
+            <TextBlock Text="Review, edit, and align subtitles on the timeline"
                        FontSize="16"
                        Foreground="{StaticResource TextSecondaryBrush}" />
         </StackPanel>
 
-        <!-- Search & Toolbar -->
+        <!-- Collapsible Video Preview -->
         <Border Grid.Row="1"
                 Background="{StaticResource SurfaceBrush}"
                 CornerRadius="8"
                 Padding="16"
-                Margin="0,0,0,16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <TextBox Grid.Column="0"
-                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="Search subtitles..."
-                         Margin="0,0,12,0" />
-
-                <Button Grid.Column="1"
-                        Command="{Binding AddSubtitleCommand}"
+                Margin="0,0,0,12"
+                Visibility="{Binding VideoFilePath, Converter={StaticResource NullToVisibility}}">
+            <StackPanel>
+                <Button Command="{Binding TogglePreviewCommand}"
                         Style="{StaticResource SecondaryButton}"
-                        Content="+ Add"
-                        Margin="4,0"
-                        Padding="12,6"
-                        FontSize="12" />
-
-                <Button Grid.Column="2"
-                        Command="{Binding MergeSubtitlesCommand}"
-                        Style="{StaticResource SecondaryButton}"
-                        Content="Merge"
-                        Margin="4,0"
-                        Padding="12,6"
-                        FontSize="12" />
-
-                <Button Grid.Column="3"
-                        Command="{Binding SplitSubtitleCommand}"
-                        Style="{StaticResource SecondaryButton}"
-                        Content="Split"
-                        Margin="4,0"
-                        Padding="12,6"
-                        FontSize="12" />
-
-                <Button Grid.Column="4"
-                        Command="{Binding DeleteSubtitleCommand}"
-                        Style="{StaticResource DangerButton}"
-                        Content="Delete"
-                        Margin="4,0"
-                        Padding="12,6"
-                        FontSize="12" />
-            </Grid>
+                        HorizontalAlignment="Left"
+                        Padding="10,6"
+                        Margin="0,0,0,8"
+                        Content="{Binding PreviewToggleLabel}" />
+                <StackPanel Visibility="{Binding IsPreviewExpanded, Converter={StaticResource BoolToVisibility}}">
+                    <MediaElement x:Name="VideoPlayer"
+                                  LoadedBehavior="Manual"
+                                  UnloadedBehavior="Manual"
+                                  Height="180"
+                                  Stretch="Uniform"
+                                  ScrubbingEnabled="True" />
+                    <TextBlock Text="Click a timeline segment or table row to seek."
+                               FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,8,0,0" />
+                </StackPanel>
+            </StackPanel>
         </Border>
 
-        <!-- DataGrid -->
-        <DataGrid Grid.Row="2"
+        <!-- Timeline -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Timeline"
+                       FontSize="14"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,6" />
+            <controls:SubtitleTimelineControl x:Name="Timeline"
+                                              Segments="{Binding TimelineSegments}"
+                                              SelectedIndex="{Binding SelectedTimelineIndex}"
+                                              PlayheadRatio="{Binding PlayheadRatio}" />
+        </StackPanel>
+
+        <!-- Search, Replace & Toolbar -->
+        <Border Grid.Row="3"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,0,12">
+            <StackPanel>
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Search subtitles..."
+                             Margin="0,0,8,0" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding ReplaceText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Replace with..."
+                             Margin="0,0,8,0" />
+                    <Button Grid.Column="2"
+                            Command="{Binding ReplaceAllCommand}"
+                            Style="{StaticResource SecondaryButton}"
+                            Content="Replace All"
+                            Padding="12,6" />
+                </Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Button Command="{Binding AddSubtitleCommand}" Style="{StaticResource SecondaryButton}" Content="+ Add" Margin="0,0,4,0" Padding="12,6" />
+                    <Button Command="{Binding MergeSubtitlesCommand}" Style="{StaticResource SecondaryButton}" Content="Merge" Margin="4,0" Padding="12,6" />
+                    <Button Command="{Binding SplitSubtitleCommand}" Style="{StaticResource SecondaryButton}" Content="Split" Margin="4,0" Padding="12,6" />
+                    <Button Command="{Binding DeleteSubtitleCommand}" Style="{StaticResource DangerButton}" Content="Delete" Margin="4,0" Padding="12,6" />
+                    <Button Command="{Binding ValidateTimecodesCommand}" Style="{StaticResource SecondaryButton}" Content="Validate" Margin="4,0" Padding="12,6" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <DataGrid x:Name="SubtitleGrid"
+                  Grid.Row="4"
                   ItemsSource="{Binding SubtitleItems}"
                   SelectedItem="{Binding SelectedItem}"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
-                  IsReadOnly="False"
-                  Margin="0,0,0,16">
+                  CellEditEnding="OnCellEditEnding"
+                  Margin="0,0,0,12">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="#"
-                                    Binding="{Binding Index}"
-                                    Width="50"
-                                    IsReadOnly="True" />
-                <DataGridTextColumn Header="Start"
-                                    Binding="{Binding StartTime, Converter={StaticResource TimeSpanConverter}}"
-                                    Width="120" />
-                <DataGridTextColumn Header="End"
-                                    Binding="{Binding EndTime, Converter={StaticResource TimeSpanConverter}}"
-                                    Width="120" />
-                <DataGridTextColumn Header="Duration"
-                                    Binding="{Binding Duration, Converter={StaticResource TimeSpanConverter}}"
-                                    Width="100"
-                                    IsReadOnly="True" />
-                <DataGridTextColumn Header="Text"
-                                    Binding="{Binding Text}"
-                                    Width="*" />
+                <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
+                <DataGridTextColumn Header="Start" Binding="{Binding StartTime, Converter={StaticResource TimeSpanConverter}, UpdateSourceTrigger=LostFocus}" Width="120" />
+                <DataGridTextColumn Header="End" Binding="{Binding EndTime, Converter={StaticResource TimeSpanConverter}, UpdateSourceTrigger=LostFocus}" Width="120" />
+                <DataGridTextColumn Header="Duration" Binding="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Width="100" IsReadOnly="True" />
+                <DataGridTextColumn Header="Text" Binding="{Binding Text, UpdateSourceTrigger=LostFocus}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>
 
-        <!-- Status -->
-        <TextBlock Grid.Row="3"
-                   Text="{Binding StatusMessage}"
-                   Foreground="{StaticResource TextSecondaryBrush}"
-                   FontSize="13" />
+        <StackPanel Grid.Row="5">
+            <TextBlock Text="{Binding ValidationMessage}"
+                       Foreground="{StaticResource ErrorBrush}"
+                       FontSize="13"
+                       Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibility}}" />
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontSize="13" />
+        </StackPanel>
     </Grid>
 </UserControl>

@@ -1,11 +1,14 @@
+using System.Text;
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.Core.Models;
+using SubtitleStudio.Core.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace SubtitleStudio.App.Services;
 
 public class SubtitleExportService : ISubtitleExportService
 {
+    private static readonly UTF8Encoding Utf8WithBom = new(encoderShouldEmitUTF8Identifier: true);
     private readonly ILogger<SubtitleExportService> _logger;
 
     public SubtitleExportService(ILogger<SubtitleExportService> logger)
@@ -15,16 +18,16 @@ public class SubtitleExportService : ISubtitleExportService
 
     public async Task<string> ExportSrtAsync(SubtitleTrack track, string outputPath)
     {
-        var content = GenerateSrtContent(track);
-        await File.WriteAllTextAsync(outputPath, content, System.Text.Encoding.UTF8);
+        var content = SubtitleFormatHelper.GenerateSrtContent(track);
+        await WriteUtf8WithBomAsync(outputPath, content);
         _logger.LogInformation("SRT exported to: {Path}", outputPath);
         return outputPath;
     }
 
     public async Task<string> ExportVttAsync(SubtitleTrack track, string outputPath)
     {
-        var content = GenerateVttContent(track);
-        await File.WriteAllTextAsync(outputPath, content, System.Text.Encoding.UTF8);
+        var content = SubtitleFormatHelper.GenerateVttContent(track);
+        await WriteUtf8WithBomAsync(outputPath, content);
         _logger.LogInformation("VTT exported to: {Path}", outputPath);
         return outputPath;
     }
@@ -40,64 +43,28 @@ public class SubtitleExportService : ISubtitleExportService
     }
 
     public async Task<string> ExportTranslatedAsync(SubtitleTrack track, string outputPath,
-        ExportFormat format, bool useProofread = true)
+        ExportFormat format, bool useProofread = true, string? languageCode = null)
     {
-        // Create a copy with translated text via DisplayText
-        var translatedTrack = track.Clone();
-        foreach (var item in translatedTrack.Items)
+        languageCode ??= track.TargetLanguage;
+        var content = format switch
         {
-            var isTranslated = !string.IsNullOrEmpty(item.TranslatedText);
-            if (isTranslated)
-            {
-                if (useProofread && !string.IsNullOrEmpty(item.ProofreadText))
-                    item.Text = item.ProofreadText!;
-                else if (!string.IsNullOrEmpty(item.TranslatedText))
-                    item.Text = item.TranslatedText;
-            }
-        }
+            ExportFormat.Srt => SubtitleFormatHelper.GenerateSrtContent(track,
+                item => SubtitleFormatHelper.GetTextForLanguage(item, languageCode, useProofread)),
+            ExportFormat.Vtt => SubtitleFormatHelper.GenerateVttContent(track,
+                item => SubtitleFormatHelper.GetTextForLanguage(item, languageCode, useProofread)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format))
+        };
 
-        return await ExportAsync(translatedTrack, outputPath, format);
+        await WriteUtf8WithBomAsync(outputPath, content);
+        _logger.LogInformation("Translated export ({Lang}) to: {Path}", languageCode, outputPath);
+        return outputPath;
     }
 
-    private static string FormatTimeSrt(TimeSpan ts) =>
-        $"{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2},{ts.Milliseconds:D3}";
-
-    private static string FormatTimeVtt(TimeSpan ts) =>
-        $"{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
-
-    private string GenerateSrtContent(SubtitleTrack track)
+    private static async Task WriteUtf8WithBomAsync(string outputPath, string content)
     {
-        var sb = new System.Text.StringBuilder();
-        foreach (var item in track.Items)
-        {
-            var text = item.DisplayText;
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            sb.AppendLine(item.Index.ToString());
-            sb.AppendLine($"{FormatTimeSrt(item.StartTime)} --> {FormatTimeSrt(item.EndTime)}");
-            sb.AppendLine(text);
-            sb.AppendLine();
-        }
-        return sb.ToString();
-    }
-
-    private string GenerateVttContent(SubtitleTrack track)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("WEBVTT");
-        sb.AppendLine();
-
-        foreach (var item in track.Items)
-        {
-            var text = item.DisplayText;
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            sb.AppendLine($"{FormatTimeVtt(item.StartTime)} --> {FormatTimeVtt(item.EndTime)}");
-            sb.AppendLine(text);
-            sb.AppendLine();
-        }
-        return sb.ToString();
+        var dir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(outputPath, content, Utf8WithBom);
     }
 }

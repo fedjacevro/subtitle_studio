@@ -3,6 +3,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.Core.Models;
+using SubtitleStudio.Core.Helpers;
+using SubtitleStudio.App.Helpers;
+using SubtitleStudio.App.Services;
+using SubtitleStudio.Core.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace SubtitleStudio.App.ViewModels;
@@ -10,7 +14,11 @@ namespace SubtitleStudio.App.ViewModels;
 public partial class TranslateViewModel : ObservableObject
 {
     private readonly ITranslationService _translationService;
+    private readonly DownloadConsentService _consentService;
+    private readonly ProgressDialogService _progressDialog;
+    private readonly UserNotificationService _notifications;
     private readonly ILogger<TranslateViewModel> _logger;
+    private readonly AppSettings _settings;
 
     [ObservableProperty]
     private SubtitleTrack? _subtitleTrack;
@@ -34,10 +42,10 @@ public partial class TranslateViewModel : ObservableObject
     private bool _isLlmModelReady;
 
     [ObservableProperty]
-    private bool _isDownloadingModel;
+    private string? _memoryWarning;
 
     [ObservableProperty]
-    private double _modelDownloadProgress;
+    private bool _isDownloadingModel;
 
     [ObservableProperty]
     private bool _translationComplete;
@@ -50,57 +58,89 @@ public partial class TranslateViewModel : ObservableObject
 
     public ObservableCollection<SubtitleItem> OriginalItems { get; } = [];
     public ObservableCollection<SubtitleItem> TranslatedItems { get; } = [];
+    public ObservableCollection<TranslationLanguageOption> LanguageOptions { get; } = [];
 
     public List<TranslationLanguage> TargetLanguages { get; } = TranslationLanguage.GetSupportedLanguages();
 
-    public TranslateViewModel(ITranslationService translationService, ILogger<TranslateViewModel> logger)
+    public TranslateViewModel(
+        ITranslationService translationService,
+        DownloadConsentService consentService,
+        ProgressDialogService progressDialog,
+        UserNotificationService notifications,
+        ILogger<TranslateViewModel> logger)
     {
         _translationService = translationService;
+        _consentService = consentService;
+        _progressDialog = progressDialog;
+        _notifications = notifications;
         _logger = logger;
+        _settings = AppSettings.Load();
+
+        foreach (var lang in TargetLanguages)
+            LanguageOptions.Add(new TranslationLanguageOption { Language = lang });
     }
 
     partial void OnSubtitleTrackChanged(SubtitleTrack? value)
     {
-        if (value != null)
+        if (value == null) return;
+
+        OriginalItems.Clear();
+        TranslatedItems.Clear();
+        foreach (var item in value.Items)
         {
-            OriginalItems.Clear();
-            TranslatedItems.Clear();
-            foreach (var item in value.Items)
-            {
-                OriginalItems.Add(item);
-                TranslatedItems.Add(item);
-            }
-            TranslationComplete = false;
-            ProofreadingComplete = false;
-            ShowTranslation = false;
+            OriginalItems.Add(item);
+            TranslatedItems.Add(item);
         }
+
+        TranslationComplete = false;
+        ProofreadingComplete = false;
+        ShowTranslation = false;
+
+        foreach (var option in LanguageOptions)
+            option.IsTranslated = value.TranslatedLanguageCodes.Contains(option.Language.Code);
     }
 
     public async Task InitializeAsync()
     {
+        UpdateMemoryWarning();
         IsLlmModelReady = await _translationService.IsModelReadyAsync();
+        if (!IsLlmModelReady && MemoryWarning == null)
+            StatusMessage = "LLM model not ready. Download it to enable translation.";
+    }
+
+    private void UpdateMemoryWarning()
+    {
+        if (!SystemMemoryHelper.HasMinimumAvailableMemory(_settings.Models.MinimumRamBytes))
+        {
+            var available = SystemMemoryHelper.GetAvailablePhysicalMemoryBytes();
+            MemoryWarning =
+                $"Low memory: {SystemMemoryHelper.FormatBytes(available)} available, " +
+                $"{SystemMemoryHelper.FormatBytes(_settings.Models.MinimumRamBytes)} recommended for the LLM.";
+        }
+        else
+        {
+            MemoryWarning = null;
+        }
     }
 
     [RelayCommand]
     private async Task DownloadModelAsync()
     {
+        if (!_consentService.EnsureConsent("Llama 3.2 3B LLM", "~2 GB"))
+            return;
+
         IsDownloadingModel = true;
-        StatusMessage = "Downloading LLM model...";
         try
         {
-            var progress = new Progress<double>(p =>
+            await _progressDialog.RunAsync("Downloading LLM Model", async (progress, ct) =>
             {
-                ModelDownloadProgress = p;
-                StatusMessage = $"Downloading LLM model... {p * 100:F0}%";
+                var inner = new Progress<double>(p =>
+                    progress.Report(new ProgressReport(p, $"Downloading LLM model... {p * 100:F0}%")));
+                await _translationService.DownloadModelAsync(inner, ct);
+                UpdateMemoryWarning();
+                IsLlmModelReady = await _translationService.IsModelReadyAsync();
+                StatusMessage = IsLlmModelReady ? "LLM model ready!" : "Model downloaded but could not load. Check memory.";
             });
-            await _translationService.DownloadModelAsync(progress);
-            IsLlmModelReady = await _translationService.IsModelReadyAsync();
-            StatusMessage = "LLM model ready!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to download LLM model");
-            StatusMessage = $"Download failed: {ex.Message}";
         }
         finally
         {
@@ -117,29 +157,81 @@ public partial class TranslateViewModel : ObservableObject
             return;
         }
 
+        await TranslateLanguageAsync(SelectedTargetLanguage.Code, SelectedTargetLanguage.DisplayName);
+    }
+
+    [RelayCommand]
+    private async Task TranslateSelectedLanguagesAsync()
+    {
+        if (SubtitleTrack == null)
+        {
+            StatusMessage = "No subtitles loaded.";
+            return;
+        }
+
+        var selected = LanguageOptions.Where(o => o.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one target language.";
+            return;
+        }
+
         IsTranslating = true;
-        TranslationProgress = 0;
-        StatusMessage = $"Translating to {SelectedTargetLanguage.DisplayName}...";
+        try
+        {
+            await _progressDialog.RunAsync("Translating Subtitles", async (progress, ct) =>
+            {
+                for (var i = 0; i < selected.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var option = selected[i];
+                    var inner = new Progress<double>(p =>
+                    {
+                        TranslationProgress = (i + p) / selected.Count;
+                        progress.Report(new ProgressReport((i + p) / selected.Count,
+                            $"Translating to {option.Language.DisplayName} ({i + 1}/{selected.Count})..."));
+                    });
+
+                    await _translationService.TranslateAsync(SubtitleTrack, option.Language.Code, "Latin", inner, ct);
+                    option.IsTranslated = true;
+                }
+
+                TranslationComplete = true;
+                ShowTranslation = true;
+                StatusMessage = $"Translated to {selected.Count} language(s).";
+            });
+        }
+        finally
+        {
+            IsTranslating = false;
+        }
+    }
+
+    private async Task TranslateLanguageAsync(string languageCode, string displayName)
+    {
+        IsTranslating = true;
         TranslationComplete = false;
 
         try
         {
-            var progress = new Progress<double>(p =>
+            await _progressDialog.RunAsync($"Translating to {displayName}", async (progress, ct) =>
             {
-                TranslationProgress = p;
-                StatusMessage = $"Translating... {p * 100:F0}%";
+                var inner = new Progress<double>(p =>
+                {
+                    TranslationProgress = p;
+                    progress.Report(new ProgressReport(p, $"Translating... {p * 100:F0}%"));
+                });
+
+                await _translationService.TranslateAsync(SubtitleTrack!, languageCode, "Latin", inner, ct);
+
+                var option = LanguageOptions.FirstOrDefault(o => o.Language.Code == languageCode);
+                if (option != null)
+                    option.IsTranslated = true;
+
+                TranslationComplete = true;
+                ShowTranslation = true;
+                StatusMessage = $"Translation to {displayName} complete!";
             });
-
-            await _translationService.TranslateAsync(SubtitleTrack, SelectedTargetLanguage.Code, "Latin", progress);
-
-            TranslationComplete = true;
-            ShowTranslation = true;
-            StatusMessage = $"Translation to {SelectedTargetLanguage.DisplayName} complete!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Translation failed");
-            StatusMessage = $"Translation failed: {ex.Message}";
         }
         finally
         {
@@ -157,27 +249,22 @@ public partial class TranslateViewModel : ObservableObject
         }
 
         IsProofreading = true;
-        TranslationProgress = 0;
-        StatusMessage = "Proofreading...";
-
         try
         {
-            var progress = new Progress<double>(p =>
+            await _progressDialog.RunAsync("Proofreading", async (progress, ct) =>
             {
-                TranslationProgress = p;
-                StatusMessage = $"Proofreading... {p * 100:F0}%";
+                var inner = new Progress<double>(p =>
+                {
+                    TranslationProgress = p;
+                    progress.Report(new ProgressReport(p, $"Proofreading... {p * 100:F0}%"));
+                });
+
+                await _translationService.ProofreadAsync(SubtitleTrack,
+                    SelectedTargetLanguage?.Code ?? SubtitleTrack.TargetLanguage ?? "en", inner, ct);
+
+                ProofreadingComplete = true;
+                StatusMessage = "Proofreading complete!";
             });
-
-            await _translationService.ProofreadAsync(SubtitleTrack,
-                SelectedTargetLanguage?.Code ?? "en", progress);
-
-            ProofreadingComplete = true;
-            StatusMessage = "Proofreading complete!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Proofreading failed");
-            StatusMessage = $"Proofreading failed: {ex.Message}";
         }
         finally
         {
@@ -186,8 +273,18 @@ public partial class TranslateViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ToggleTranslationView()
-    {
-        ShowTranslation = !ShowTranslation;
-    }
+    private void ToggleTranslationView() => ShowTranslation = !ShowTranslation;
+}
+
+public partial class TranslationLanguageOption : ObservableObject
+{
+    public required TranslationLanguage Language { get; init; }
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
+    private bool _isTranslated;
+
+    public string DisplayName => Language.NativeName;
 }

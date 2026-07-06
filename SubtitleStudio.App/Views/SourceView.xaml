@@ -7,7 +7,6 @@
              d:DesignHeight="600" d:DesignWidth="800">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="32">
         <StackPanel>
-            <!-- Header -->
             <TextBlock Text="Step 1: Source"
                        FontSize="28"
                        FontWeight="Bold"
@@ -28,7 +27,7 @@
                                FontSize="18"
                                FontWeight="SemiBold"
                                Margin="0,0,0,12" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
                         <Border Background="{StaticResource SuccessBrush}"
                                 CornerRadius="4"
                                 Padding="8,4"
@@ -44,14 +43,11 @@
                             <TextBlock Text="FFmpeg Not Available" Foreground="White" FontSize="12" />
                         </Border>
                         <Button Command="{Binding DownloadFfmpegCommand}"
-                                IsEnabled="{Binding IsDownloadingFfmpeg, Converter={StaticResource InverseBoolConverter}}"
-                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolConverter}}"
+                                Visibility="{Binding IsFfmpegAvailable, Converter={StaticResource InverseBoolVisibilityConverter}}"
                                 Padding="12,6"
                                 FontSize="12"
                                 Content="Download FFmpeg" />
                     </StackPanel>
-                    <ProgressBar Value="{Binding FfmpegDownloadProgress}"
-                                 Visibility="{Binding IsDownloadingFfmpeg, Converter={StaticResource BoolToVisibility}}" />
                 </StackPanel>
             </Border>
 
@@ -60,34 +56,45 @@
                     CornerRadius="8"
                     Padding="20"
                     Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="Video File"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Margin="0,0,0,16" />
-                    <Border Background="{StaticResource SurfaceLightBrush}"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            Background="{StaticResource SurfaceLightBrush}"
                             CornerRadius="8"
-                            Padding="16"
-                            BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1"
-                            IsHitTestVisible="False"
-                            Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Text="{Binding VideoFileName}"
-                                       FontSize="18"
-                                       FontWeight="SemiBold"
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,4" />
-                            <TextBlock Text="{Binding VideoDuration}"
-                                       FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       Visibility="{Binding VideoDuration, Converter={StaticResource NullToVisibility}}" />
-                        </StackPanel>
+                            Margin="0,0,16,0"
+                            MinHeight="120">
+                        <Grid>
+                            <Image Source="{Binding ThumbnailPath, Converter={StaticResource PathToImageConverter}}"
+                                   Stretch="UniformToFill" />
+                        </Grid>
                     </Border>
-                    <Button Command="{Binding SelectVideoCommand}"
-                            Content="Browse Video Files"
-                            HorizontalAlignment="Left" />
-                </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Video File"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,12" />
+                        <TextBlock Text="{Binding VideoFileName}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,8" />
+                        <TextBlock Text="{Binding VideoSummary}"
+                                   FontSize="13"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,12"
+                                   Visibility="{Binding VideoSummary, Converter={StaticResource NullToVisibility}}" />
+                        <Button Command="{Binding SelectVideoCommand}"
+                                Content="Browse Video Files"
+                                HorizontalAlignment="Left"
+                                IsEnabled="{Binding IsLoadingVideo, Converter={StaticResource InverseBoolConverter}}" />
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Model Selection -->
@@ -135,7 +142,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Status -->
             <TextBlock Text="{Binding StatusMessage}"
                        Foreground="{StaticResource TextSecondaryBrush}"
                        FontSize="13"

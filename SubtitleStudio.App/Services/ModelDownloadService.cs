@@ -1,6 +1,9 @@
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.App.Helpers;
-using System.Net.Http;
 using Microsoft.Extensions.Logging;
 
 namespace SubtitleStudio.App.Services;
@@ -38,41 +41,96 @@ public class ModelDownloadService : IModelDownloadService
     }
 
     public async Task DownloadFileAsync(string url, string destinationPath,
-        IProgress<double>? progress = null, CancellationToken ct = default)
+        IProgress<double>? progress = null, CancellationToken ct = default, string? expectedSha256 = null)
     {
         var dir = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        _logger.LogInformation("Starting download from {Url} to {Path}", url, destinationPath);
+        var tempPath = destinationPath + ".tmp";
+        var existingBytes = File.Exists(tempPath) ? new FileInfo(tempPath).Length : 0L;
 
-        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
+        _logger.LogInformation("Starting download from {Url} to {Path} (resume from {Bytes} bytes)",
+            url, destinationPath, existingBytes);
 
-        var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-        await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
-        await using var fileStream = new FileStream(destinationPath + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+        var (statusCode, contentLength, stream) = await OpenDownloadStreamAsync(url, existingBytes, ct);
 
-        var buffer = new byte[8192 * 16];
-        long bytesRead = 0;
-        int read;
-        while ((read = await contentStream.ReadAsync(buffer, ct)) > 0)
+        if (statusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
         {
-            await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
-            bytesRead += read;
-            if (totalBytes > 0)
-                progress?.Report((double)bytesRead / totalBytes);
+            existingBytes = 0;
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+            (_, contentLength, stream) = await OpenDownloadStreamAsync(url, 0, ct);
+        }
+        else if (statusCode == HttpStatusCode.OK && existingBytes > 0)
+        {
+            existingBytes = 0;
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
         }
 
-        await fileStream.FlushAsync(ct);
-        await fileStream.DisposeAsync();
+        await using (stream)
+        {
+            await using var fileStream = new FileStream(tempPath,
+                existingBytes > 0 ? FileMode.Append : FileMode.Create,
+                FileAccess.Write, FileShare.None, 8192, true);
+
+            var buffer = new byte[8192 * 16];
+            long bytesRead = existingBytes;
+            var totalBytes = contentLength > 0 ? existingBytes + contentLength : -1L;
+            int read;
+
+            while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
+                bytesRead += read;
+                if (totalBytes > 0)
+                    progress?.Report((double)bytesRead / totalBytes);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedSha256))
+            await VerifySha256Async(tempPath, expectedSha256);
 
         if (File.Exists(destinationPath))
             File.Delete(destinationPath);
-        File.Move(destinationPath + ".tmp", destinationPath);
+        File.Move(tempPath, destinationPath);
 
         progress?.Report(1.0);
         _logger.LogInformation("Download completed: {Path}", destinationPath);
+    }
+
+    private async Task<(HttpStatusCode StatusCode, long ContentLength, Stream Stream)> OpenDownloadStreamAsync(
+        string url, long resumeFrom, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (resumeFrom > 0)
+            request.Headers.Range = new RangeHeaderValue(resumeFrom, null);
+
+        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            return (response.StatusCode, 0, Stream.Null);
+
+        response.EnsureSuccessStatusCode();
+        var contentLength = response.Content.Headers.ContentLength ?? -1L;
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        return (response.StatusCode, contentLength, stream);
+    }
+
+    private async Task VerifySha256Async(string filePath, string expectedSha256)
+    {
+        await using var fileStream = File.OpenRead(filePath);
+        var hash = await SHA256.HashDataAsync(fileStream);
+        var actual = Convert.ToHexString(hash);
+
+        if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(filePath);
+            throw new InvalidOperationException(
+                $"Downloaded file failed SHA256 verification. Expected {expectedSha256}, got {actual}.");
+        }
+
+        _logger.LogInformation("SHA256 verification passed for {Path}", filePath);
     }
 
     public bool FileExists(string path) => File.Exists(path);

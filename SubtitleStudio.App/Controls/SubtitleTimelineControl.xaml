@@ -1,0 +1,27 @@
+<UserControl x:Class="SubtitleStudio.App.Controls.SubtitleTimelineControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="80" d:DesignWidth="600"
+             Background="Transparent">
+    <Border Background="{StaticResource SurfaceLightBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="8"
+            Height="72">
+        <Grid>
+            <Canvas x:Name="TimelineCanvas"
+                    Background="Transparent"
+                    MouseLeftButtonDown="TimelineCanvas_MouseLeftButtonDown" />
+            <TextBlock Text="No subtitles to display on timeline"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontSize="12"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       x:Name="EmptyText" />
+        </Grid>
+    </Border>
+</UserControl>

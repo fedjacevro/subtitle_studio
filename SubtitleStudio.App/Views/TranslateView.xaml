@@ -50,12 +50,18 @@
                                 FontSize="12"
                                 Content="Download LLM Model (~2GB)" />
                     </StackPanel>
-                    <ProgressBar Value="{Binding ModelDownloadProgress}"
+                    <ProgressBar IsIndeterminate="True"
                                  Visibility="{Binding IsDownloadingModel, Converter={StaticResource BoolToVisibility}}"
                                  Margin="0,0,0,4" />
                     <TextBlock Text="{Binding StatusMessage}"
                                Foreground="{StaticResource TextSecondaryBrush}"
                                FontSize="13" />
+                    <TextBlock Text="{Binding MemoryWarning}"
+                               Foreground="{StaticResource WarningBrush}"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,8,0,0"
+                               Visibility="{Binding MemoryWarning, Converter={StaticResource NullToVisibility}}" />
                 </StackPanel>
             </Border>
 
@@ -74,7 +80,22 @@
                               DisplayMemberPath="NativeName"
                               HorizontalAlignment="Left"
                               MinWidth="200"
-                              Margin="0,0,0,16" />
+                              Margin="0,0,0,12" />
+
+                    <TextBlock Text="Batch translate (select multiple):"
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding LanguageOptions}"
+                                  Margin="0,0,0,16">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding DisplayName}"
+                                          IsChecked="{Binding IsSelected}"
+                                          Margin="0,2" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                         <Button Command="{Binding TranslateCommand}"
@@ -82,9 +103,15 @@
                                 Padding="20,10"
                                 Content="Translate"
                                 Margin="0,0,8,0" />
+                        <Button Command="{Binding TranslateSelectedLanguagesCommand}"
+                                Style="{StaticResource SecondaryButton}"
+                                IsEnabled="{Binding IsTranslating, Converter={StaticResource InverseBoolConverter}}"
+                                Padding="20,10"
+                                Content="Translate Selected"
+                                Margin="0,0,8,0" />
                         <Button Command="{Binding ProofreadCommand}"
                                 Style="{StaticResource SecondaryButton}"
-                                IsEnabled="{Binding ProofreadingComplete, Converter={StaticResource InverseBoolConverter}}"
+                                IsEnabled="{Binding IsProofreading, Converter={StaticResource InverseBoolConverter}}"
                                 Padding="20,10"
                                 Content="Proofread" />
                     </StackPanel>

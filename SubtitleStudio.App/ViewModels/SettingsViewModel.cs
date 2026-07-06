@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SubtitleStudio.Core.Interfaces;
 using SubtitleStudio.Core.Models;
+using SubtitleStudio.Core.Helpers;
 using SubtitleStudio.App.Helpers;
+using SubtitleStudio.App.Services;
 using Microsoft.Extensions.Logging;
 
 namespace SubtitleStudio.App.ViewModels;
@@ -14,6 +17,9 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ITranslationService _translationService;
     private readonly IVideoProcessingService _videoService;
     private readonly IModelDownloadService _downloadService;
+    private readonly DownloadConsentService _consentService;
+    private readonly ProgressDialogService _progressDialog;
+    private readonly UserNotificationService _notifications;
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty]
@@ -23,31 +29,16 @@ public partial class SettingsViewModel : ObservableObject
     private ObservableCollection<ModelInfo> _llmModels = [];
 
     [ObservableProperty]
+    private ModelInfo? _selectedWhisperModelInfo;
+
+    [ObservableProperty]
     private bool _isDownloadingWhisper;
-
-    [ObservableProperty]
-    private double _whisperDownloadProgress;
-
-    [ObservableProperty]
-    private string? _whisperDownloadStatus;
 
     [ObservableProperty]
     private bool _isDownloadingLlm;
 
     [ObservableProperty]
-    private double _llmDownloadProgress;
-
-    [ObservableProperty]
-    private string? _llmDownloadStatus;
-
-    [ObservableProperty]
     private bool _isDownloadingFfmpeg;
-
-    [ObservableProperty]
-    private double _ffmpegDownloadProgress;
-
-    [ObservableProperty]
-    private string? _ffmpegDownloadStatus;
 
     [ObservableProperty]
     private bool _isFfmpegAvailable;
@@ -56,21 +47,32 @@ public partial class SettingsViewModel : ObservableObject
     private string? _statusMessage;
 
     [ObservableProperty]
+    private string _memoryStatus = string.Empty;
+
+    [ObservableProperty]
     private WhisperModelSize _selectedWhisperModel = WhisperModelSize.Small;
 
     public List<WhisperModelSizeOption> ModelSizes { get; } = WhisperModelSizeOption.GetAll();
+    public string ModelsDirectory => _downloadService.GetModelsDirectory();
+    public string LogsDirectory => Path.Combine(Constants.GetAppDataPath(), "logs");
 
     public SettingsViewModel(
         ITranscriptionService transcriptionService,
         ITranslationService translationService,
         IVideoProcessingService videoService,
         IModelDownloadService downloadService,
+        DownloadConsentService consentService,
+        ProgressDialogService progressDialog,
+        UserNotificationService notifications,
         ILogger<SettingsViewModel> logger)
     {
         _transcriptionService = transcriptionService;
         _translationService = translationService;
         _videoService = videoService;
         _downloadService = downloadService;
+        _consentService = consentService;
+        _progressDialog = progressDialog;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -89,7 +91,8 @@ public partial class SettingsViewModel : ObservableObject
                 Size = size,
                 IsDownloaded = isDownloaded,
                 FileSizeBytes = fileSize,
-                FileSizeDisplay = fileSize > 0 ? FormatSize(fileSize) : "Not downloaded"
+                FileSizeDisplay = fileSize > 0 ? FormatSize(fileSize) : "Not downloaded",
+                FilePath = modelPath
             });
         }
 
@@ -102,32 +105,42 @@ public partial class SettingsViewModel : ObservableObject
             Size = WhisperModelSize.Small,
             IsDownloaded = llmDownloaded,
             FileSizeBytes = llmDownloaded ? _downloadService.GetFileSize(llmPath) : 0,
-            FileSizeDisplay = llmDownloaded ? FormatSize(_downloadService.GetFileSize(llmPath)) : "Not downloaded"
+            FileSizeDisplay = llmDownloaded ? FormatSize(_downloadService.GetFileSize(llmPath)) : "Not downloaded",
+            FilePath = llmPath
         });
 
         IsFfmpegAvailable = await _videoService.IsFfmpegAvailableAsync();
+        var available = SystemMemoryHelper.GetAvailablePhysicalMemoryBytes();
+        MemoryStatus =
+            $"Available memory: {SystemMemoryHelper.FormatBytes(available)} · Recommended: {SystemMemoryHelper.FormatBytes(SystemMemoryHelper.RecommendedMinimumBytes)}";
+        StatusMessage = "Model status refreshed.";
     }
 
     [RelayCommand]
     private async Task DownloadWhisperModelAsync()
     {
+        if (!_consentService.EnsureConsent($"Whisper {SelectedWhisperModel.GetDisplayName()}",
+                SelectedWhisperModel.GetApproximateSizeBytes() switch
+                {
+                    < 200_000_000 => "~75–140 MB",
+                    < 600_000_000 => "~460 MB",
+                    < 2_000_000_000 => "~1.5 GB",
+                    _ => "~2.9 GB"
+                }))
+            return;
+
         IsDownloadingWhisper = true;
-        WhisperDownloadStatus = $"Downloading {SelectedWhisperModel.GetDisplayName()}...";
         try
         {
-            var progress = new Progress<double>(p =>
-            {
-                WhisperDownloadProgress = p;
-                WhisperDownloadStatus = $"Downloading {SelectedWhisperModel.GetDisplayName()}... {p * 100:F0}%";
-            });
-            await _transcriptionService.DownloadModelAsync(SelectedWhisperModel, progress);
-            WhisperDownloadStatus = $"{SelectedWhisperModel.GetDisplayName()} downloaded!";
-            await RefreshModelStatusAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Whisper model download failed");
-            WhisperDownloadStatus = $"Download failed: {ex.Message}";
+            await _progressDialog.RunAsync($"Downloading {SelectedWhisperModel.GetDisplayName()}",
+                async (progress, ct) =>
+                {
+                    var inner = new Progress<double>(p =>
+                        progress.Report(new ProgressReport(p,
+                            $"Downloading {SelectedWhisperModel.GetDisplayName()}... {p * 100:F0}%")));
+                    await _transcriptionService.DownloadModelAsync(SelectedWhisperModel, inner, ct);
+                    await RefreshModelStatusAsync();
+                });
         }
         finally
         {
@@ -138,23 +151,19 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task DownloadLlmModelAsync()
     {
+        if (!_consentService.EnsureConsent("Llama 3.2 3B LLM", "~2 GB"))
+            return;
+
         IsDownloadingLlm = true;
-        LlmDownloadStatus = "Downloading LLM model...";
         try
         {
-            var progress = new Progress<double>(p =>
+            await _progressDialog.RunAsync("Downloading LLM Model", async (progress, ct) =>
             {
-                LlmDownloadProgress = p;
-                LlmDownloadStatus = $"Downloading LLM model... {p * 100:F0}%";
+                var inner = new Progress<double>(p =>
+                    progress.Report(new ProgressReport(p, $"Downloading LLM model... {p * 100:F0}%")));
+                await _translationService.DownloadModelAsync(inner, ct);
+                await RefreshModelStatusAsync();
             });
-            await _translationService.DownloadModelAsync(progress);
-            LlmDownloadStatus = "LLM model downloaded!";
-            await RefreshModelStatusAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "LLM model download failed");
-            LlmDownloadStatus = $"Download failed: {ex.Message}";
         }
         finally
         {
@@ -165,28 +174,93 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task DownloadFfmpegAsync()
     {
+        if (!_consentService.EnsureConsent("FFmpeg", "~80 MB"))
+            return;
+
         IsDownloadingFfmpeg = true;
-        FfmpegDownloadStatus = "Downloading FFmpeg...";
         try
         {
-            var progress = new Progress<double>(p =>
+            await _progressDialog.RunAsync("Downloading FFmpeg", async (progress, ct) =>
             {
-                FfmpegDownloadProgress = p;
-                FfmpegDownloadStatus = $"Downloading FFmpeg... {p * 100:F0}%";
+                var inner = new Progress<double>(p =>
+                    progress.Report(new ProgressReport(p, $"Downloading FFmpeg... {p * 100:F0}%")));
+                await _videoService.DownloadFfmpegAsync(inner, ct);
+                IsFfmpegAvailable = true;
+                StatusMessage = "FFmpeg downloaded.";
             });
-            await _videoService.DownloadFfmpegAsync(progress);
-            IsFfmpegAvailable = true;
-            FfmpegDownloadStatus = "FFmpeg downloaded!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "FFmpeg download failed");
-            FfmpegDownloadStatus = $"Download failed: {ex.Message}";
         }
         finally
         {
             IsDownloadingFfmpeg = false;
         }
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedWhisperModel()
+    {
+        var model = SelectedWhisperModelInfo ?? WhisperModels.FirstOrDefault(m => m.Size == SelectedWhisperModel);
+        if (model == null || !model.IsDownloaded || string.IsNullOrEmpty(model.FilePath))
+        {
+            StatusMessage = "Select a downloaded Whisper model to delete.";
+            return;
+        }
+
+        if (!_notifications.Confirm("Delete Model",
+                $"Delete {model.Name}? It can be downloaded again later."))
+            return;
+
+        try
+        {
+            File.Delete(model.FilePath);
+            StatusMessage = $"Deleted {model.Name}.";
+            _ = RefreshModelStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete whisper model");
+            _notifications.ShowError("Delete Failed", ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteLlmModel()
+    {
+        var model = LlmModels.FirstOrDefault();
+        if (model == null || !model.IsDownloaded || string.IsNullOrEmpty(model.FilePath))
+        {
+            StatusMessage = "LLM model is not downloaded.";
+            return;
+        }
+
+        if (!_notifications.Confirm("Delete Model", "Delete the LLM model? It can be downloaded again later."))
+            return;
+
+        try
+        {
+            File.Delete(model.FilePath);
+            StatusMessage = "LLM model deleted.";
+            _ = RefreshModelStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete LLM model");
+            _notifications.ShowError("Delete Failed", ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenModelsFolder() => OpenFolder(ModelsDirectory);
+
+    [RelayCommand]
+    private void OpenLogsFolder()
+    {
+        Directory.CreateDirectory(LogsDirectory);
+        OpenFolder(LogsDirectory);
+    }
+
+    private static void OpenFolder(string path)
+    {
+        Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
     }
 
     private static string FormatSize(long bytes) => bytes switch
@@ -206,4 +280,5 @@ public class ModelInfo
     public long FileSizeBytes { get; set; }
     public string FileSizeDisplay { get; set; } = "Not downloaded";
     public string StatusDisplay => IsDownloaded ? "Downloaded" : "Not downloaded";
+    public string? FilePath { get; set; }
 }

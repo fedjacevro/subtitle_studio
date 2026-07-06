@@ -7,5 +7,6 @@ public interface ISubtitleExportService
     Task<string> ExportSrtAsync(SubtitleTrack track, string outputPath);
     Task<string> ExportVttAsync(SubtitleTrack track, string outputPath);
     Task<string> ExportAsync(SubtitleTrack track, string outputPath, ExportFormat format);
-    Task<string> ExportTranslatedAsync(SubtitleTrack track, string outputPath, ExportFormat format, bool useProofread = true);
+    Task<string> ExportTranslatedAsync(SubtitleTrack track, string outputPath, ExportFormat format,
+        bool useProofread = true, string? languageCode = null);
 }
