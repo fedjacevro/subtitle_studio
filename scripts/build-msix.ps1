@@ -33,7 +33,11 @@ if (-not [string]::IsNullOrWhiteSpace($Version)) {
     while ($parts.Count -lt 4) { $parts += '0' }
     $manifestVersion = ($parts[0..3] -join '.')
     $content = Get-Content $manifestTarget -Raw
-    $content = $content -replace 'Version="[^"]+"', "Version=`"$manifestVersion`""
+    $content = [regex]::Replace(
+        $content,
+        '(<Identity\b[^>]*\bVersion=")[^"]+(")',
+        "`${1}$manifestVersion`${2}",
+        1)
     Set-Content -Path $manifestTarget -Value $content -NoNewline
     Write-Host "MSIX manifest version set to $manifestVersion"
 }
