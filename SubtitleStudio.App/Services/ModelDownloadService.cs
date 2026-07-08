@@ -69,35 +69,47 @@ public class ModelDownloadService : IModelDownloadService
                 File.Delete(tempPath);
         }
 
-        await using (stream)
+        bool downloadSucceeded = false;
+        try
         {
-            await using var fileStream = new FileStream(tempPath,
-                existingBytes > 0 ? FileMode.Append : FileMode.Create,
-                FileAccess.Write, FileShare.None, 8192, true);
-
-            var buffer = new byte[8192 * 16];
-            long bytesRead = existingBytes;
-            var totalBytes = contentLength > 0 ? existingBytes + contentLength : -1L;
-            int read;
-
-            while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+            await using (stream)
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
-                bytesRead += read;
-                if (totalBytes > 0)
-                    progress?.Report((double)bytesRead / totalBytes);
+                await using var fileStream = new FileStream(tempPath,
+                    existingBytes > 0 ? FileMode.Append : FileMode.Create,
+                    FileAccess.Write, FileShare.None, 8192, true);
+
+                var buffer = new byte[8192 * 16];
+                long bytesRead = existingBytes;
+                var totalBytes = contentLength > 0 ? existingBytes + contentLength : -1L;
+                int read;
+
+                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, read), ct);
+                    bytesRead += read;
+                    if (totalBytes > 0)
+                        progress?.Report((double)bytesRead / totalBytes);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(expectedSha256))
+                await VerifySha256Async(tempPath, expectedSha256);
+
+            if (File.Exists(destinationPath))
+                File.Delete(destinationPath);
+            File.Move(tempPath, destinationPath);
+
+            downloadSucceeded = true;
+            progress?.Report(1.0);
+            _logger.LogInformation("Download completed: {Path}", destinationPath);
+        }
+        finally
+        {
+            if (!downloadSucceeded && File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { /* best effort */ }
             }
         }
-
-        if (!string.IsNullOrWhiteSpace(expectedSha256))
-            await VerifySha256Async(tempPath, expectedSha256);
-
-        if (File.Exists(destinationPath))
-            File.Delete(destinationPath);
-        File.Move(tempPath, destinationPath);
-
-        progress?.Report(1.0);
-        _logger.LogInformation("Download completed: {Path}", destinationPath);
     }
 
     private async Task<(HttpStatusCode StatusCode, long ContentLength, Stream Stream)> OpenDownloadStreamAsync(

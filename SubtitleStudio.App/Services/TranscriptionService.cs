@@ -90,6 +90,10 @@ public class TranscriptionService : ITranscriptionService
 
             progress?.Report(1.0);
             _logger.LogInformation("Transcription completed: {Count} segments", track.Items.Count);
+
+            // Best-effort cleanup of temp audio (not critical if fails)
+            try { if (File.Exists(audioFilePath)) File.Delete(audioFilePath); } catch { }
+
             return track;
         }, ct);
     }

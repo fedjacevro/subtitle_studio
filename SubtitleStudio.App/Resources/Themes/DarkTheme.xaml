@@ -168,6 +168,8 @@
         <Setter Property="HeadersVisibility" Value="Column" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="RowHeight" Value="32" />
+        <Setter Property="EnableRowVirtualization" Value="True" />
+        <Setter Property="EnableColumnVirtualization" Value="False" />
     </Style>
 
     <Style TargetType="DataGridColumnHeader">

@@ -15,6 +15,7 @@ public class TranslationService : ITranslationService, IDisposable
     private readonly IModelDownloadService _downloadService;
     private readonly ILogger<TranslationService> _logger;
     private readonly AppSettings _settings;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
     private LLamaWeights? _weights;
     private LLamaContext? _context;
 
@@ -30,7 +31,7 @@ public class TranslationService : ITranslationService, IDisposable
         return Path.Combine(_downloadService.GetLlmModelsDirectory(), Constants.LlmModelFileName);
     }
 
-    public async Task<bool> IsModelReadyAsync()
+    public async Task<bool> IsModelReadyAsync(CancellationToken ct = default)
     {
         var modelPath = GetModelPath();
         if (!_downloadService.FileExists(modelPath))
@@ -44,27 +45,44 @@ public class TranslationService : ITranslationService, IDisposable
             return false;
         }
 
+        if (_weights != null && _context != null)
+            return true;
+
+        await _loadLock.WaitAsync(ct);
         try
         {
-            if (_weights == null)
-            {
-                var modelParams = new ModelParams(modelPath)
-                {
-                    ContextSize = 2048,
-                    GpuLayerCount = 0, // CPU-only
-                    UseMemoryLock = false,
-                    BatchSize = 512,
-                };
+            if (_weights != null && _context != null)
+                return true;
 
-                _weights = await Task.Run(() => LLamaWeights.LoadFromFile(modelParams));
-                _context = _weights.CreateContext(modelParams);
-            }
+            // Re-check file (could have been deleted)
+            if (!_downloadService.FileExists(modelPath))
+                return false;
+
+            var modelParams = new ModelParams(modelPath)
+            {
+                ContextSize = 2048,
+                GpuLayerCount = 0, // CPU-only
+                UseMemoryLock = false,
+                BatchSize = 512,
+            };
+
+            _weights = await Task.Run(() => LLamaWeights.LoadFromFile(modelParams), ct);
+            _context = _weights.CreateContext(modelParams);
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load LLM model");
+            // Clean partial state
+            _context?.Dispose();
+            _weights?.Dispose();
+            _context = null;
+            _weights = null;
             return false;
+        }
+        finally
+        {
+            _loadLock.Release();
         }
     }
 
@@ -96,7 +114,7 @@ public class TranslationService : ITranslationService, IDisposable
     {
         if (_weights == null || _context == null)
         {
-            if (!await IsModelReadyAsync())
+            if (!await IsModelReadyAsync(ct))
                 throw new InvalidOperationException("LLM model is not ready. Please download it first.");
         }
 
@@ -128,7 +146,7 @@ Source:
 
             _logger.LogInformation("Translating chunk {Chunk}/{Total}", chunkIdx + 1, totalChunks);
 
-            var result = await ExecuteInferenceAsync(prompt);
+            var result = await ExecuteInferenceAsync(prompt, ct);
 
             var parsed = LlmResponseParser.ParseNumberedLines(result, chunkIdx, chunkSize, items, (item, text) =>
                 item.SetTranslation(targetLanguage, text));
@@ -153,7 +171,7 @@ Source:
     {
         if (_weights == null || _context == null)
         {
-            if (!await IsModelReadyAsync())
+            if (!await IsModelReadyAsync(ct))
                 throw new InvalidOperationException("LLM model is not ready. Please download it first.");
         }
 
@@ -182,7 +200,7 @@ Source:
 
             _logger.LogInformation("Proofreading chunk {Chunk}/{Total}", chunkIdx + 1, totalChunks);
 
-            var result = await ExecuteInferenceAsync(prompt);
+            var result = await ExecuteInferenceAsync(prompt, ct);
 
             var parsed = LlmResponseParser.ParseNumberedLines(result, chunkIdx, chunkSize, items, (item, text) =>
                 item.SetProofread(targetLanguage, text));
@@ -200,10 +218,12 @@ Source:
         _logger.LogInformation("Proofreading completed for {Count} items", items.Count);
     }
 
-    private async Task<string> ExecuteInferenceAsync(string prompt)
+    private async Task<string> ExecuteInferenceAsync(string prompt, CancellationToken ct = default)
     {
         if (_context == null || _weights == null)
             throw new InvalidOperationException("LLM model not loaded");
+
+        ct.ThrowIfCancellationRequested();
 
         return await Task.Run(async () =>
         {
@@ -220,16 +240,20 @@ Source:
             var result = string.Empty;
             await foreach (var text in session.ChatAsync(session.History.Messages.Last(), inferenceParams))
             {
+                ct.ThrowIfCancellationRequested();
                 result += text;
             }
 
             return result.Trim();
-        });
+        }, ct);
     }
 
     public void Dispose()
     {
         _context?.Dispose();
         _weights?.Dispose();
+        _context = null;
+        _weights = null;
+        _loadLock.Dispose();
     }
 }

@@ -11,10 +11,12 @@
             BorderThickness="1"
             CornerRadius="6"
             Padding="8"
-            Height="72">
+            Height="72"
+            ClipToBounds="True">
         <Grid>
             <Canvas x:Name="TimelineCanvas"
                     Background="Transparent"
+                    ClipToBounds="True"
                     MouseLeftButtonDown="TimelineCanvas_MouseLeftButtonDown" />
             <TextBlock Text="No subtitles to display on timeline"
                        Foreground="{StaticResource TextSecondaryBrush}"

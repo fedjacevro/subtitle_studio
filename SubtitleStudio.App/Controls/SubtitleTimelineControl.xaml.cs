@@ -69,6 +69,7 @@ public partial class SubtitleTimelineControl : UserControl
 
         var width = TimelineCanvas.ActualWidth;
         var height = TimelineCanvas.ActualHeight > 0 ? TimelineCanvas.ActualHeight : 48;
+        if (height <= 0) height = 48;
         TimelineCanvas.Height = height;
 
         foreach (var segment in segments)

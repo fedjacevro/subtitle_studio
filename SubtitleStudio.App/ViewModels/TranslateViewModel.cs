@@ -209,34 +209,26 @@ public partial class TranslateViewModel : ObservableObject
 
     private async Task TranslateLanguageAsync(string languageCode, string displayName)
     {
-        IsTranslating = true;
         TranslationComplete = false;
 
-        try
+        await _progressDialog.RunAsync($"Translating to {displayName}", async (progress, ct) =>
         {
-            await _progressDialog.RunAsync($"Translating to {displayName}", async (progress, ct) =>
+            var inner = new Progress<double>(p =>
             {
-                var inner = new Progress<double>(p =>
-                {
-                    TranslationProgress = p;
-                    progress.Report(new ProgressReport(p, $"Translating... {p * 100:F0}%"));
-                });
-
-                await _translationService.TranslateAsync(SubtitleTrack!, languageCode, "Latin", inner, ct);
-
-                var option = LanguageOptions.FirstOrDefault(o => o.Language.Code == languageCode);
-                if (option != null)
-                    option.IsTranslated = true;
-
-                TranslationComplete = true;
-                ShowTranslation = true;
-                StatusMessage = $"Translation to {displayName} complete!";
+                TranslationProgress = p;
+                progress.Report(new ProgressReport(p, $"Translating... {p * 100:F0}%"));
             });
-        }
-        finally
-        {
-            IsTranslating = false;
-        }
+
+            await _translationService.TranslateAsync(SubtitleTrack!, languageCode, "Latin", inner, ct);
+
+            var option = LanguageOptions.FirstOrDefault(o => o.Language.Code == languageCode);
+            if (option != null)
+                option.IsTranslated = true;
+
+            TranslationComplete = true;
+            ShowTranslation = true;
+            StatusMessage = $"Translation to {displayName} complete!";
+        });
     }
 
     [RelayCommand]

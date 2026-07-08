@@ -20,6 +20,16 @@ public partial class EditSubtitlesView : UserControl
                 _viewModel.SeekRequested -= OnSeekRequested;
                 Timeline.SegmentClicked -= OnTimelineSegmentClicked;
             }
+            try
+            {
+                if (VideoPlayer != null)
+                {
+                    VideoPlayer.Stop();
+                    VideoPlayer.Close();
+                    VideoPlayer.Source = null;
+                }
+            }
+            catch { }
         };
     }
 
@@ -46,9 +56,16 @@ public partial class EditSubtitlesView : UserControl
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             return;
 
-        VideoPlayer.Source = new Uri(path);
-        VideoPlayer.Play();
-        VideoPlayer.Pause();
+        try
+        {
+            VideoPlayer.Source = new Uri(path);
+            VideoPlayer.Play();
+            VideoPlayer.Pause();
+        }
+        catch (Exception)
+        {
+            // MediaElement may fail on some formats/containers; preview is best-effort
+        }
     }
 
     private void OnCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)

@@ -61,8 +61,17 @@ public class FfmpegService
         Directory.CreateDirectory(audioDir);
         var audioPath = Path.Combine(audioDir, Constants.TempAudioFileName);
 
-        if (File.Exists(audioPath))
-            File.Delete(audioPath);
+        // Cleanup stale temp audio (best effort)
+        try { if (File.Exists(audioPath)) File.Delete(audioPath); } catch { }
+
+        // Also clean stale thumbnails dir occasionally (non-blocking)
+        try
+        {
+            var thumbDir = Path.Combine(audioDir, "thumbnails");
+            if (Directory.Exists(thumbDir) && Directory.GetFiles(thumbDir).Length > 50)
+                Directory.Delete(thumbDir, true);
+        }
+        catch { }
 
         var ffmpegPath = GetFfmpegPath();
         _logger.LogInformation("Extracting audio from {Video} to {Audio} using {Ffmpeg}",
@@ -71,15 +80,30 @@ public class FfmpegService
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegPath,
-            Arguments = $"-i \"{videoFilePath}\" -vn -acodec pcm_s16le -ar 16000 -ac 1 \"{audioPath}\"",
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(videoFilePath);
+        startInfo.ArgumentList.Add("-vn");
+        startInfo.ArgumentList.Add("-acodec");
+        startInfo.ArgumentList.Add("pcm_s16le");
+        startInfo.ArgumentList.Add("-ar");
+        startInfo.ArgumentList.Add("16000");
+        startInfo.ArgumentList.Add("-ac");
+        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add(audioPath);
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
+
+        // Drain stdout to prevent pipe deadlock (even if not used)
+        var stdoutTask = Task.Run(async () =>
+        {
+            while (await process.StandardOutput.ReadLineAsync(ct) is { } _ ) { /* discard */ }
+        }, ct);
 
         // Read stderr to track progress (FFmpeg outputs progress to stderr)
         var errorOutput = new List<string>();
@@ -89,19 +113,17 @@ public class FfmpegService
             if (line != null)
             {
                 errorOutput.Add(line);
-                // Parse duration for progress
+                // Parse duration for progress (basic; improved version uses pre-probe)
                 if (line.Contains("time="))
                 {
-                    var timeStr = line.Split("time=")[1].Split(' ')[0];
-                    if (TimeSpan.TryParse(timeStr, out var current))
-                    {
-                        // We can't know total duration easily here, so just report indeterminate
-                        progress?.Report(0.5);
-                    }
+                    var timeStr = line.Split("time=")[1].Split(' ')[0].Trim();
+                    // Report rough progress; caller maps to 0-0.3
+                    progress?.Report(0.5);
                 }
             }
         }
 
+        await stdoutTask;
         await process.WaitForExitAsync(ct);
 
         if (process.ExitCode != 0)
@@ -130,20 +152,25 @@ public class FfmpegService
         var color = ToAssColor(fontColor ?? "white");
         var ffmpegPath = GetFfmpegPath();
         var escapedSubs = FfmpegPathHelper.EscapeSubtitlePath(subtitlesFilePath);
-        var arguments =
-            $"-i \"{videoFilePath}\" -vf \"subtitles='{escapedSubs}':force_style='Fontname={font},Fontsize={fontSize},PrimaryColour={color}'\" -c:a copy \"{outputPath}\"";
+        var vfFilter = $"subtitles='{escapedSubs}':force_style='Fontname={font},Fontsize={fontSize},PrimaryColour={color}'";
 
-        _logger.LogInformation("Burning subtitles: ffmpeg {Args}", arguments);
+        _logger.LogInformation("Burning subtitles: ffmpeg vf={Vf}", vfFilter);
 
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegPath,
-            Arguments = arguments,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(videoFilePath);
+        startInfo.ArgumentList.Add("-vf");
+        startInfo.ArgumentList.Add(vfFilter);
+        startInfo.ArgumentList.Add("-c:a");
+        startInfo.ArgumentList.Add("copy");
+        startInfo.ArgumentList.Add(outputPath);
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
@@ -155,8 +182,14 @@ public class FfmpegService
                 errorOutput.Add(line);
         }, ct);
 
+        // Drain stdout to prevent pipe deadlock
+        var readStdout = Task.Run(async () =>
+        {
+            while (await process.StandardOutput.ReadLineAsync(ct) is { } _) { /* discard */ }
+        }, ct);
+
         await process.WaitForExitAsync(ct);
-        await readStderr;
+        await Task.WhenAll(readStderr, readStdout);
 
         if (process.ExitCode != 0)
         {
@@ -178,7 +211,7 @@ public class FfmpegService
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = "ffmpeg.exe",
+                FileName = path,
                 Arguments = "-version",
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -187,11 +220,16 @@ public class FfmpegService
             };
 
             using var process = Process.Start(startInfo);
-            process?.WaitForExit(5000);
-            return process?.ExitCode == 0;
+            if (process == null) return false;
+            // Drain to avoid hang
+            _ = process.StandardOutput.ReadToEnd();
+            _ = process.StandardError.ReadToEnd();
+            process.WaitForExit(5000);
+            return process.ExitCode == 0;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "FFmpeg availability check failed");
             return false;
         }
     }
@@ -245,8 +283,8 @@ public class FfmpegService
             }
         }
 
-        // Clean up zip
-        File.Delete(zipPath);
+        // Clean up zip (best effort)
+        try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
         progress?.Report(1.0);
         _logger.LogInformation("FFmpeg download and extraction completed");
     }
@@ -268,6 +306,7 @@ public class FfmpegService
 
             using var process = new Process { StartInfo = startInfo };
             process.Start();
+            _ = process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();
             process.WaitForExit(5000);
 
@@ -308,8 +347,10 @@ public class FfmpegService
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
         var output = await process.StandardError.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
+        _ = await stdoutTask; // drain to avoid deadlock
 
         info.Duration = ParseDuration(output);
         if (TimeSpan.TryParse(info.Duration?.Replace(',', '.'), CultureInfo.InvariantCulture, out var ts))
@@ -353,6 +394,7 @@ public class FfmpegService
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
+        _ = process.StandardOutput.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
 
         return process.ExitCode == 0 && File.Exists(thumbPath) ? thumbPath : null;

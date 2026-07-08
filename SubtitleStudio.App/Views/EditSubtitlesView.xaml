@@ -118,13 +118,22 @@
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
                   CellEditEnding="OnCellEditEnding"
+                  EnableRowVirtualization="True"
+                  MinHeight="180"
                   Margin="0,0,0,12">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
                 <DataGridTextColumn Header="Start" Binding="{Binding StartTime, Converter={StaticResource TimeSpanConverter}, UpdateSourceTrigger=LostFocus}" Width="120" />
                 <DataGridTextColumn Header="End" Binding="{Binding EndTime, Converter={StaticResource TimeSpanConverter}, UpdateSourceTrigger=LostFocus}" Width="120" />
                 <DataGridTextColumn Header="Duration" Binding="{Binding Duration, Converter={StaticResource TimeSpanConverter}}" Width="100" IsReadOnly="True" />
-                <DataGridTextColumn Header="Text" Binding="{Binding Text, UpdateSourceTrigger=LostFocus}" Width="*" />
+                <DataGridTextColumn Header="Text" Binding="{Binding Text, UpdateSourceTrigger=LostFocus}" Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="TextWrapping" Value="Wrap" />
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
             </DataGrid.Columns>
         </DataGrid>
 

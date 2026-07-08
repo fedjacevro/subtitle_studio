@@ -145,7 +145,7 @@ public partial class MainViewModel : ObservableObject
     {
         vm.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == "StatusMessage")
+            if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == "StatusMessage")
                 RefreshGlobalStatus();
         };
     }

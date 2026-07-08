@@ -35,6 +35,31 @@ public static class LlmResponseParser
             parsed++;
         }
 
+        // Fallback: if no numbered lines parsed, try to apply lines sequentially for the chunk (best effort)
+        if (parsed == 0)
+        {
+            var fallbackLines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
+
+            int maxForChunk = Math.Min(chunkSize, items.Count - chunkIdx * chunkSize);
+            for (int i = 0; i < Math.Min(fallbackLines.Count, maxForChunk); i++)
+            {
+                var actualIdx = chunkIdx * chunkSize + i;
+                if (actualIdx >= items.Count) break;
+                var text = fallbackLines[i];
+                // Strip any leading markers if present
+                if (text.StartsWith('[') && text.Contains(']'))
+                    text = text[(text.IndexOf(']') + 1)..].Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    apply(items[actualIdx], text);
+                    parsed++;
+                }
+            }
+        }
+
         return parsed;
     }
 }
